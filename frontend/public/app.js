@@ -57,15 +57,15 @@ function MetricBadge({ label, value }) {
   );
 }
 
-function DataQualityBadge({ quality }) {
+function DataQualityBadge({ quality, tier, reviewRequired }) {
   if (!quality) {
     return null;
   }
 
   return h(
     "div",
-    { className: `quality-badge grade-${quality.grade}` },
-    h("span", null, "신뢰도"),
+    { className: `quality-badge grade-${quality.grade} ${reviewRequired ? "review-required" : ""}` },
+    h("span", null, tier || "신뢰도"),
     h("strong", null, `${quality.grade} · ${quality.score}점`)
   );
 }
@@ -181,7 +181,13 @@ function RecommendationCard({ item, selected, checked, onSelect, onToggleCompare
       h(MetricBadge, { label: "선택시간 유동", value: formatPercent(item.metrics.selectedTimePopulationRatio) }),
       h(MetricBadge, { label: "객단가", value: `${formatNumber(item.metrics.averageOrderValue)}원` })
     ),
-    h(DataQualityBadge, { quality: item.dataQuality }),
+    h(DataQualityBadge, {
+      quality: item.dataQuality,
+      tier: item.recommendationTier,
+      reviewRequired: item.reviewRequired,
+    }),
+    item.reviewRequired &&
+      h("p", { className: "review-note" }, "점수는 높지만 표본/이상치 기준상 검토 후보입니다."),
     h(
       "ul",
       { className: "reason-list" },
@@ -263,7 +269,11 @@ function DetailPanel({ detail, loading, useAi }) {
       h(MetricBadge, { label: "총 유동인구", value: formatNumber(detail.metrics.totalPopulation) }),
       h(MetricBadge, { label: "타깃 유동인구", value: formatNumber(detail.metrics.targetPopulation ?? detail.metrics.mzPopulation) })
     ),
-    h(DataQualityBadge, { quality: detail.dataQuality }),
+    h(DataQualityBadge, {
+      quality: detail.dataQuality,
+      tier: detail.recommendationTier,
+      reviewRequired: detail.reviewRequired,
+    }),
     h(CautionList, { cautions: detail.cautions }),
     h("h3", null, "점수 구성"),
     h(ScoreBreakdown, { breakdown: detail.scoreBreakdown }),
@@ -324,7 +334,11 @@ function ComparePanel({ compare, selectedCodes }) {
           { className: "compare-card", key: area.areaCode },
           h("strong", null, area.areaName),
           h("span", null, `${area.score.toFixed(1)}점`),
-          h(DataQualityBadge, { quality: area.dataQuality }),
+          h(DataQualityBadge, {
+            quality: area.dataQuality,
+            tier: area.recommendationTier,
+            reviewRequired: area.reviewRequired,
+          }),
           h(MetricBadge, { label: "타깃 매출비율", value: formatPercent(area.metrics.targetSalesRatio ?? area.metrics.mzSalesRatio) }),
           h(MetricBadge, { label: "타깃 유동비율", value: formatPercent(area.metrics.targetPopulationRatio ?? area.metrics.mzPopulationRatio) }),
           h(MetricBadge, { label: "카페전환효율", value: formatPercent(area.metrics.cafeConversionRate, 2) }),
@@ -353,7 +367,7 @@ function App() {
   async function loadRecommendations(time) {
     setStatus("loading");
     const ages = selectedAges.join(",");
-    const data = await fetchJson(`/recommendations?time=${time}&targetAges=${ages}&industry=${encodeURIComponent("커피-음료")}&limit=10&useAdjustedScore=${useAdjustedScore}`);
+    const data = await fetchJson(`/recommendations?time=${time}&targetAges=${ages}&industry=${encodeURIComponent("커피-음료")}&limit=10&useAdjustedScore=${useAdjustedScore}&minQualityScore=60`);
     setRecommendations(data.items);
     setCriteria(data.criteria);
     setSelectedAreaCode(data.items[0]?.areaCode ?? null);
@@ -382,7 +396,7 @@ function App() {
     }
 
     setDetailLoading(true);
-    fetchJson(`/areas/${selectedAreaCode}?time=${selectedTime}&targetAges=${selectedAges.join(",")}&ai=${useAi}&useAdjustedScore=${useAdjustedScore}`)
+    fetchJson(`/areas/${selectedAreaCode}?time=${selectedTime}&targetAges=${selectedAges.join(",")}&ai=${useAi}&useAdjustedScore=${useAdjustedScore}&minQualityScore=60`)
       .then(setDetail)
       .catch(() => setDetail(null))
       .finally(() => setDetailLoading(false));
@@ -394,7 +408,7 @@ function App() {
       return;
     }
 
-    fetchJson(`/compare?areaA=${compareCodes[0]}&areaB=${compareCodes[1]}&time=${selectedTime}&targetAges=${selectedAges.join(",")}&useAdjustedScore=${useAdjustedScore}`)
+    fetchJson(`/compare?areaA=${compareCodes[0]}&areaB=${compareCodes[1]}&time=${selectedTime}&targetAges=${selectedAges.join(",")}&useAdjustedScore=${useAdjustedScore}&minQualityScore=60`)
       .then(setCompare)
       .catch(() => setCompare(null));
   }, [compareCodes, selectedTime, selectedAges.join(","), useAdjustedScore]);
@@ -416,7 +430,7 @@ function App() {
         "div",
         null,
         h("h2", null, "희망 운영 시간대"),
-        criteria && h("p", { className: "muted" }, `${criteria.timeLabel} ${criteria.timeRange} · 타깃 ${criteria.targetAges.join(",")}대 · ${criteria.useAdjustedScore ? "이상치 보정" : "원점수"}`),
+        criteria && h("p", { className: "muted" }, `${criteria.timeLabel} ${criteria.timeRange} · 타깃 ${criteria.targetAges.join(",")}대 · ${criteria.useAdjustedScore ? "이상치 보정" : "원점수"} · 신뢰도 ${criteria.minQualityScore}점 이상 우선`),
         h(
           "label",
           { className: "ai-toggle" },

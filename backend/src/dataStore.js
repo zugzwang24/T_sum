@@ -35,6 +35,9 @@ const QUALITY_GRADES = [
   { min: 40, label: "주의" },
   { min: 0, label: "낮음" },
 ];
+const DEFAULT_MIN_RECOMMENDATION_QUALITY = 60;
+const RECOMMENDED_TIER = "안정 추천";
+const REVIEW_TIER = "검토 후보";
 
 const AGE_SUFFIX = {
   10: "10",
@@ -236,6 +239,18 @@ function getQualityGrade(score) {
   return QUALITY_GRADES.find((grade) => score >= grade.min)?.label ?? "낮음";
 }
 
+function parseMinQualityScore(input) {
+  const parsed = Number.parseInt(input, 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_MIN_RECOMMENDATION_QUALITY;
+  }
+  return Math.min(Math.max(parsed, 0), 100);
+}
+
+function getRecommendationTier(dataQuality, minQualityScore) {
+  return dataQuality.score >= minQualityScore ? RECOMMENDED_TIER : REVIEW_TIER;
+}
+
 function getRanges(items, useAdjustedScore = false) {
   const fields = [
     "conversionRate",
@@ -354,7 +369,7 @@ function scoreArea(area, ranges, stats) {
     timeScore * SCORE_WEIGHTS.selectedTimeSalesRatio +
     priceScore * SCORE_WEIGHTS.averagePrice;
   const dataQuality = buildDataQuality(area, stats);
-  const reliabilityFactor = 0.8 + (dataQuality.score / 100) * 0.2;
+  const reliabilityFactor = 0.55 + (dataQuality.score / 100) * 0.45;
   const adjustedRawScore = rawScore * reliabilityFactor;
 
   return {
@@ -474,12 +489,27 @@ function getRecommendations(query = {}) {
   }
 
   const maxItems = Math.min(Math.max(Number.parseInt(query.limit, 10) || 10, 1), 50);
-  const items = prepared.enriched
+  const minQualityScore = parseMinQualityScore(query.minQualityScore);
+  const allowLowConfidenceTop = String(query.allowLowConfidenceTop).toLowerCase() === "true";
+  const scoredItems = prepared.enriched
     .map((area) => {
       const scored = scoreArea(area, prepared.ranges, prepared.stats);
-      return toRecommendation(area, 0, scored, prepared.timeOption, prepared.stats);
+      const item = toRecommendation(area, 0, scored, prepared.timeOption, prepared.stats);
+      const reviewRequired = item.dataQuality.score < minQualityScore;
+      return {
+        ...item,
+        reviewRequired,
+        recommendationTier: getRecommendationTier(item.dataQuality, minQualityScore),
+      };
     })
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => {
+      if (!allowLowConfidenceTop && a.reviewRequired !== b.reviewRequired) {
+        return Number(a.reviewRequired) - Number(b.reviewRequired);
+      }
+      return b.score - a.score;
+    });
+
+  const items = scoredItems
     .slice(0, maxItems)
     .map((item, index) => ({ ...item, rank: index + 1 }));
 
@@ -493,6 +523,11 @@ function getRecommendations(query = {}) {
       timeRange: prepared.timeOption.range,
       weights: SCORE_WEIGHTS,
       useAdjustedScore: prepared.useAdjustedScore,
+      minQualityScore,
+      rankingPolicy: allowLowConfidenceTop
+        ? "점수순 정렬"
+        : `신뢰도 ${minQualityScore}점 이상 우선 정렬`,
+      reviewCandidateCount: scoredItems.filter((item) => item.reviewRequired).length,
     },
     items,
   };
@@ -565,6 +600,8 @@ function getAreaDetail(areaCode, query = {}) {
 
   const scored = scoreArea(area, prepared.ranges, prepared.stats);
   const recommendation = toRecommendation(area, null, scored, prepared.timeOption, prepared.stats);
+  const minQualityScore = parseMinQualityScore(query.minQualityScore);
+  const reviewRequired = recommendation.dataQuality.score < minQualityScore;
 
   return {
     areaCode: area.areaCode,
@@ -573,6 +610,8 @@ function getAreaDetail(areaCode, query = {}) {
     baseScore: recommendation.baseScore,
     reliabilityFactor: recommendation.reliabilityFactor,
     dataQuality: recommendation.dataQuality,
+    reviewRequired,
+    recommendationTier: getRecommendationTier(recommendation.dataQuality, minQualityScore),
     metrics: {
       totalSalesAmount: area.totalSalesAmount,
       totalSalesCount: area.totalSalesCount,
@@ -619,6 +658,8 @@ async function getAreaDetailWithAi(areaCode, time = "evening", ai = "false", ext
     areaName: detail.areaName,
     score: detail.score,
     dataQuality: detail.dataQuality,
+    reviewRequired: detail.reviewRequired,
+    recommendationTier: detail.recommendationTier,
     metrics: detail.metrics,
     cautions: detail.cautions,
     reasons: detail.reasons,
@@ -652,6 +693,7 @@ function compareAreas(areaA, areaB, query = {}) {
       timeLabel: timeOption.label,
       timeRange: timeOption.range,
       targetAges: parseTargetAges(query.targetAges),
+      minQualityScore: parseMinQualityScore(query.minQualityScore),
     },
     areas: [first, second],
     summary: `${timeOption.label} 기준으로는 ${winner.areaName}의 추천점수가 더 높습니다. 주요 차이는 ${strongerMetric}과 선택 시간대 매출비중에서 발생합니다.`,

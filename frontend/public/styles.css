@@ -288,6 +288,19 @@ h3 {
   color: #6b4a00;
 }
 
+.review-required {
+  border-color: #e6b7a6;
+  background: #fff6f2;
+  color: #8a3d1f;
+}
+
+.review-note {
+  margin-top: 8px;
+  color: #8a3d1f;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .score-note {
   margin-top: 3px;
   color: #6b756e;
