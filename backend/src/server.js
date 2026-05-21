@@ -8,6 +8,8 @@ const {
   searchAreas,
 } = require("./dataStore");
 
+const express = require("express");
+const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
 
 function sendJson(res, statusCode, data) {
