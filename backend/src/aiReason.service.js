@@ -3,7 +3,7 @@ const LOCAL_LLM_MODEL = process.env.LOCAL_LLM_MODEL || "llama3.1";
 const OPENAI_API_URL =
   process.env.OPENAI_API_URL || "https://api.openai.com/v1/chat/completions";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5-nano";
-const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 15000);
+const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 60000);
 let hasLoggedOpenAiResponse = false;
 
 function getStrategyGuide(timeOption) {
