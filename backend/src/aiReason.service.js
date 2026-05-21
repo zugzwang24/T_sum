@@ -130,10 +130,15 @@ function extractOpenAiText(data) {
     return data.output_text.trim();
   }
 
+  const firstContentText = data.output?.[0]?.content?.[0]?.text;
+  if (typeof firstContentText === "string" && firstContentText.trim()) {
+    return firstContentText.trim();
+  }
+
   const parts = [];
   for (const item of data.output || []) {
     for (const content of item.content || []) {
-      if (content.type === "output_text" && content.text) {
+      if (typeof content.text === "string" && content.text.trim()) {
         parts.push(content.text);
       }
     }
