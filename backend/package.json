@@ -1,0 +1,14 @@
+{
+  "name": "cafe-area-backend",
+  "version": "1.0.0",
+  "description": "Node.js API server for cafe area analysis data",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
