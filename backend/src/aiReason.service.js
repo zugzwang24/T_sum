@@ -3,6 +3,11 @@ const LOCAL_LLM_MODEL = process.env.LOCAL_LLM_MODEL || "llama3.1";
 const OPENAI_API_URL = process.env.OPENAI_API_URL || "https://api.openai.com/v1/responses";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5-nano";
 const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 15000);
+const configuredMaxOutputTokens = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 700);
+const OPENAI_MAX_OUTPUT_TOKENS = Number.isFinite(configuredMaxOutputTokens)
+  ? Math.max(configuredMaxOutputTokens, 500)
+  : 700;
+let hasLoggedOpenAiResponse = false;
 
 function getStrategyGuide(timeOption) {
   const guides = {
@@ -130,11 +135,6 @@ function extractOpenAiText(data) {
     return data.output_text.trim();
   }
 
-  const firstContentText = data.output?.[0]?.content?.[0]?.text;
-  if (typeof firstContentText === "string" && firstContentText.trim()) {
-    return firstContentText.trim();
-  }
-
   const parts = [];
   for (const item of data.output || []) {
     for (const content of item.content || []) {
@@ -145,6 +145,16 @@ function extractOpenAiText(data) {
   }
 
   return parts.join("\n").trim();
+}
+
+function logOpenAiResponse(data) {
+  if (hasLoggedOpenAiResponse) {
+    return;
+  }
+
+  hasLoggedOpenAiResponse = true;
+  console.log("[OPENAI RESPONSE]");
+  console.log(JSON.stringify(data, null, 2));
 }
 
 async function callOpenAi(prompt) {
@@ -165,10 +175,8 @@ async function callOpenAi(prompt) {
       signal: controller.signal,
       body: JSON.stringify({
         model: OPENAI_MODEL,
-        instructions:
-          "너는 카페 창업 상권 분석가다. 제공된 정량 지표만 사용하고, 순위와 점수를 새로 만들거나 바꾸지 마라.",
         input: prompt,
-        max_output_tokens: 350,
+        max_output_tokens: OPENAI_MAX_OUTPUT_TOKENS,
       }),
     });
 
@@ -178,7 +186,14 @@ async function callOpenAi(prompt) {
     }
 
     const data = await response.json();
-    return extractOpenAiText(data);
+    logOpenAiResponse(data);
+
+    const text = extractOpenAiText(data);
+    if (!text) {
+      throw new Error(`openai response was empty: ${JSON.stringify(data)}`);
+    }
+
+    return text;
   } finally {
     clearTimeout(timeout);
   }
