@@ -1,5 +1,8 @@
 const LOCAL_LLM_URL = process.env.LOCAL_LLM_URL || "http://localhost:11434/api/generate";
 const LOCAL_LLM_MODEL = process.env.LOCAL_LLM_MODEL || "llama3.1";
+const OPENAI_API_URL = process.env.OPENAI_API_URL || "https://api.openai.com/v1/responses";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5-nano";
+const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 15000);
 
 function getStrategyGuide(timeOption) {
   const guides = {
@@ -83,6 +86,99 @@ function buildPrompt(item, timeOption) {
   ].join("\n");
 }
 
+function getExplanationProvider() {
+  const explicitProvider = String(process.env.EXPLANATION_PROVIDER || "")
+    .trim()
+    .toLowerCase();
+  if (explicitProvider === "openai") {
+    return "openai";
+  }
+  if (explicitProvider === "ollama" || explicitProvider === "local-llm") {
+    return "ollama";
+  }
+  if (explicitProvider === "rule") {
+    return "rule";
+  }
+
+  const provider = String(
+    process.env.LLM_PROVIDER || process.env.EXPLANATION_MODE || "openai"
+  ).toLowerCase();
+
+  if (provider.includes("ollama") || provider.includes("local")) {
+    return "ollama";
+  }
+  if (provider.includes("rule")) {
+    return "rule";
+  }
+  return "openai";
+}
+
+function getAiConfig() {
+  const provider = getExplanationProvider();
+  return {
+    provider,
+    mode: provider,
+    model: provider === "ollama" ? LOCAL_LLM_MODEL : OPENAI_MODEL,
+    usedFallback: provider === "rule",
+    openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
+    openAiApiUrl: OPENAI_API_URL,
+  };
+}
+
+function extractOpenAiText(data) {
+  if (typeof data.output_text === "string" && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  const parts = [];
+  for (const item of data.output || []) {
+    for (const content of item.content || []) {
+      if (content.type === "output_text" && content.text) {
+        parts.push(content.text);
+      }
+    }
+  }
+
+  return parts.join("\n").trim();
+}
+
+async function callOpenAi(prompt) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not configured");
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(OPENAI_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        instructions:
+          "너는 카페 창업 상권 분석가다. 제공된 정량 지표만 사용하고, 순위와 점수를 새로 만들거나 바꾸지 마라.",
+        input: prompt,
+        max_output_tokens: 350,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OpenAI request failed: ${response.status} ${errorText.slice(0, 160)}`);
+    }
+
+    const data = await response.json();
+    return extractOpenAiText(data);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function callLocalLlm(prompt) {
   const response = await fetch(LOCAL_LLM_URL, {
     method: "POST",
@@ -110,15 +206,33 @@ async function buildAiReason(item, timeOption, enabled) {
     };
   }
 
-  try {
-    const text = await callLocalLlm(buildPrompt(item, timeOption));
+  const provider = getExplanationProvider();
+  if (provider === "rule") {
     return {
-      mode: "local-llm",
-      text: text || buildFallbackAiReason(item, timeOption),
+      mode: "rule",
+      provider,
+      model: null,
+      text: buildFallbackAiReason(item, timeOption),
+    };
+  }
+
+  try {
+    const prompt = buildPrompt(item, timeOption);
+    const text = provider === "ollama" ? await callLocalLlm(prompt) : await callOpenAi(prompt);
+    if (!text) {
+      throw new Error(`${provider} response was empty`);
+    }
+    return {
+      mode: provider === "ollama" ? "local-llm" : "openai",
+      provider,
+      model: provider === "ollama" ? LOCAL_LLM_MODEL : OPENAI_MODEL,
+      text,
     };
   } catch (error) {
     return {
       mode: "rule-fallback",
+      provider,
+      model: provider === "ollama" ? LOCAL_LLM_MODEL : OPENAI_MODEL,
       text: buildFallbackAiReason(item, timeOption),
       error: error.message,
     };
@@ -128,5 +242,6 @@ async function buildAiReason(item, timeOption, enabled) {
 module.exports = {
   buildAiReason,
   buildRuleBasedReasons,
+  getAiConfig,
   getStrategyGuide,
 };

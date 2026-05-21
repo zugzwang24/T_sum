@@ -51,12 +51,20 @@ night     심야 21~24
 
 각 구성 요소는 CSV 데이터 기준 Min-Max Scaling으로 정규화합니다.
 
-## 로컬 LLM 설명
+## AI 해설
 
-기본 설명은 rule-based로 생성됩니다. 로컬 LLM 설명을 시도하려면 Ollama 등을 실행한 뒤 `ai=true`를 붙입니다.
+배포 환경에서는 OpenAI Responses API와 `gpt-5-nano`를 사용해 상권 해설을 생성합니다. API 키는 프론트엔드가 아니라 백엔드 환경변수에만 저장합니다.
+
+```bash
+OPENAI_API_KEY=sk-...
+EXPLANATION_PROVIDER=openai
+OPENAI_MODEL=gpt-5-nano
+```
+
+요청에 `ai=true`를 붙이면 추천 순위와 점수는 그대로 두고, 제공된 지표만 근거로 설명 문장을 생성합니다.
 
 ```bash
 curl "http://localhost:4000/api/recommendations?time=evening&limit=5&ai=true"
 ```
 
-로컬 LLM 호출이 실패하면 자동으로 rule-based 설명으로 fallback합니다.
+OpenAI 호출이 실패하거나 API 키가 없으면 자동으로 rule-based 설명으로 fallback합니다. 로컬에서 Ollama를 다시 쓰고 싶으면 `EXPLANATION_PROVIDER=ollama`로 바꿀 수 있습니다.

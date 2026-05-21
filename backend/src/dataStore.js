@@ -3,6 +3,7 @@ const path = require("path");
 const {
   buildAiReason,
   buildRuleBasedReasons,
+  getAiConfig,
   getStrategyGuide,
 } = require("./aiReason.service");
 
@@ -540,10 +541,17 @@ async function getRecommendationsWithAi(query = {}) {
   }
 
   const useAi = String(query.ai).toLowerCase() === "true";
+  const aiConfig = getAiConfig();
   if (!useAi) {
     return {
       ...result,
-      explanation: { requestedAi: false, mode: "rule" },
+      explanation: {
+        requestedAi: false,
+        provider: "rule",
+        model: null,
+        mode: "rule",
+        usedFallback: false,
+      },
     };
   }
 
@@ -553,10 +561,17 @@ async function getRecommendationsWithAi(query = {}) {
     const aiReason = await buildAiReason(item, timeOption, useAi);
     items.push({ ...item, aiReason });
   }
+  const usedFallback = items.some((item) => item.aiReason?.mode === "rule-fallback");
 
   return {
     ...result,
-    explanation: { requestedAi: true, mode: "local-llm-with-rule-fallback" },
+    explanation: {
+      requestedAi: true,
+      provider: aiConfig.provider,
+      model: aiConfig.model,
+      mode: usedFallback ? "rule-fallback" : aiConfig.mode,
+      usedFallback,
+    },
     items,
   };
 }
@@ -708,12 +723,7 @@ function getMeta() {
     timeOptions: TIME_OPTIONS,
     ageOptions: ["10", "20", "30", "40", "50", "60"],
     scoreWeights: SCORE_WEIGHTS,
-    explanationMode: process.env.EXPLANATION_MODE || "rule",
-    localLlm: {
-      enabled: process.env.EXPLANATION_MODE === "local-llm",
-      provider: process.env.LOCAL_LLM_PROVIDER || "ollama",
-      model: process.env.LOCAL_LLM_MODEL || null,
-    },
+    explanation: getAiConfig(),
     data: {
       totalAreas: areas.length,
       path: DATA_PATH,
