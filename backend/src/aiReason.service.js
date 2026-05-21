@@ -49,8 +49,12 @@ function buildFallbackAiReason(item, timeOption) {
   const targetSalesRatio = item.metrics.targetSalesRatio ?? item.metrics.mzSalesRatio;
   const conversionRate = item.metrics.conversionRate ?? item.metrics.cafeConversionRate;
   const averagePrice = item.metrics.averagePrice ?? item.metrics.averageOrderValue;
+  const cautionText =
+    item.cautions && item.cautions.length > 0
+      ? ` 데이터 해석 시 ${item.cautions[0]}`
+      : "";
 
-  return `${item.areaName}은 ${timeOption.label} 시간대 기준 추천점수 ${item.score}점을 기록했습니다. 타깃 매출비율은 ${(targetSalesRatio * 100).toFixed(1)}%, 카페전환효율은 ${(conversionRate * 100).toFixed(2)}%, 선택 시간대 매출비중은 ${(item.metrics.selectedTimeSalesRatio * 100).toFixed(1)}%, 객단가는 ${averagePrice}원입니다. ${item.reasons.join(" ")} ${item.strategyGuide}`;
+  return `${item.areaName}은 ${timeOption.label} 시간대 기준 추천점수 ${item.score}점을 기록했습니다. 타깃 매출비율은 ${(targetSalesRatio * 100).toFixed(1)}%, 카페전환효율은 ${(conversionRate * 100).toFixed(2)}%, 선택 시간대 매출비중은 ${(item.metrics.selectedTimeSalesRatio * 100).toFixed(1)}%, 객단가는 ${averagePrice}원입니다. ${item.reasons.join(" ")}${cautionText} ${item.strategyGuide}`;
 }
 
 function buildPrompt(item, timeOption) {
@@ -72,6 +76,8 @@ function buildPrompt(item, timeOption) {
     `선택시간대 매출비중: ${(item.metrics.selectedTimeSalesRatio * 100).toFixed(1)}%`,
     `선택시간대 유동인구비중: ${item.metrics.selectedTimePopulationRatio === null || item.metrics.selectedTimePopulationRatio === undefined ? "데이터 없음" : `${(item.metrics.selectedTimePopulationRatio * 100).toFixed(1)}%`}`,
     `객단가: ${averagePrice}원`,
+    `데이터 신뢰도: ${item.dataQuality ? `${item.dataQuality.grade} (${item.dataQuality.score}점)` : "데이터 없음"}`,
+    `주의할 점: ${item.cautions?.join(" ") || "큰 경고 없음"}`,
     `기본 추천 사유: ${item.reasons.join(" ")}`,
     `운영 전략: ${item.strategyGuide}`,
   ].join("\n");

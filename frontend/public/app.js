@@ -57,6 +57,36 @@ function MetricBadge({ label, value }) {
   );
 }
 
+function DataQualityBadge({ quality }) {
+  if (!quality) {
+    return null;
+  }
+
+  return h(
+    "div",
+    { className: `quality-badge grade-${quality.grade}` },
+    h("span", null, "신뢰도"),
+    h("strong", null, `${quality.grade} · ${quality.score}점`)
+  );
+}
+
+function CautionList({ cautions }) {
+  if (!cautions || cautions.length === 0) {
+    return null;
+  }
+
+  return h(
+    "div",
+    { className: "caution-box" },
+    h("strong", null, "주의할 점"),
+    h(
+      "ul",
+      null,
+      cautions.map((caution) => h("li", { key: caution }, caution))
+    )
+  );
+}
+
 function TimeSelector({ selectedTime, onChange }) {
   return h(
     "div",
@@ -151,6 +181,7 @@ function RecommendationCard({ item, selected, checked, onSelect, onToggleCompare
       h(MetricBadge, { label: "선택시간 유동", value: formatPercent(item.metrics.selectedTimePopulationRatio) }),
       h(MetricBadge, { label: "객단가", value: `${formatNumber(item.metrics.averageOrderValue)}원` })
     ),
+    h(DataQualityBadge, { quality: item.dataQuality }),
     h(
       "ul",
       { className: "reason-list" },
@@ -222,6 +253,8 @@ function DetailPanel({ detail, loading, useAi }) {
     h("span", { className: "eyebrow" }, "상권 상세"),
     h("h2", null, detail.areaName),
     h("p", { className: "panel-score" }, `${detail.score.toFixed(1)}점`),
+    detail.baseScore &&
+      h("p", { className: "score-note" }, `기본점수 ${detail.baseScore.toFixed(1)}점에서 데이터 신뢰도를 반영했습니다.`),
     h(
       "div",
       { className: "metrics-grid" },
@@ -230,6 +263,8 @@ function DetailPanel({ detail, loading, useAi }) {
       h(MetricBadge, { label: "총 유동인구", value: formatNumber(detail.metrics.totalPopulation) }),
       h(MetricBadge, { label: "타깃 유동인구", value: formatNumber(detail.metrics.targetPopulation ?? detail.metrics.mzPopulation) })
     ),
+    h(DataQualityBadge, { quality: detail.dataQuality }),
+    h(CautionList, { cautions: detail.cautions }),
     h("h3", null, "점수 구성"),
     h(ScoreBreakdown, { breakdown: detail.scoreBreakdown }),
     h("h3", null, "시간대별 매출비중"),
@@ -289,7 +324,8 @@ function ComparePanel({ compare, selectedCodes }) {
           { className: "compare-card", key: area.areaCode },
           h("strong", null, area.areaName),
           h("span", null, `${area.score.toFixed(1)}점`),
-          h(MetricBadge, { label: "2030 매출비율", value: formatPercent(area.metrics.mzSalesRatio) }),
+          h(DataQualityBadge, { quality: area.dataQuality }),
+          h(MetricBadge, { label: "타깃 매출비율", value: formatPercent(area.metrics.targetSalesRatio ?? area.metrics.mzSalesRatio) }),
           h(MetricBadge, { label: "타깃 유동비율", value: formatPercent(area.metrics.targetPopulationRatio ?? area.metrics.mzPopulationRatio) }),
           h(MetricBadge, { label: "카페전환효율", value: formatPercent(area.metrics.cafeConversionRate, 2) }),
           h(MetricBadge, { label: "선택시간 매출", value: formatPercent(area.metrics.selectedTimeSalesRatio) }),
@@ -312,11 +348,12 @@ function App() {
   const [useAi, setUseAi] = React.useState(false);
   const [detailLoading, setDetailLoading] = React.useState(false);
   const [selectedAges, setSelectedAges] = React.useState(["20", "30"]);
+  const [useAdjustedScore, setUseAdjustedScore] = React.useState(true);
 
   async function loadRecommendations(time) {
     setStatus("loading");
     const ages = selectedAges.join(",");
-    const data = await fetchJson(`/recommendations?time=${time}&targetAges=${ages}&industry=${encodeURIComponent("커피-음료")}&limit=10`);
+    const data = await fetchJson(`/recommendations?time=${time}&targetAges=${ages}&industry=${encodeURIComponent("커피-음료")}&limit=10&useAdjustedScore=${useAdjustedScore}`);
     setRecommendations(data.items);
     setCriteria(data.criteria);
     setSelectedAreaCode(data.items[0]?.areaCode ?? null);
@@ -336,7 +373,7 @@ function App() {
 
   React.useEffect(() => {
     loadRecommendations(selectedTime).catch(() => setStatus("error"));
-  }, [selectedTime, selectedAges.join(",")]);
+  }, [selectedTime, selectedAges.join(","), useAdjustedScore]);
 
   React.useEffect(() => {
     if (!selectedAreaCode) {
@@ -345,11 +382,11 @@ function App() {
     }
 
     setDetailLoading(true);
-    fetchJson(`/areas/${selectedAreaCode}?time=${selectedTime}&targetAges=${selectedAges.join(",")}&ai=${useAi}`)
+    fetchJson(`/areas/${selectedAreaCode}?time=${selectedTime}&targetAges=${selectedAges.join(",")}&ai=${useAi}&useAdjustedScore=${useAdjustedScore}`)
       .then(setDetail)
       .catch(() => setDetail(null))
       .finally(() => setDetailLoading(false));
-  }, [selectedAreaCode, selectedTime, selectedAges.join(","), useAi]);
+  }, [selectedAreaCode, selectedTime, selectedAges.join(","), useAi, useAdjustedScore]);
 
   React.useEffect(() => {
     if (compareCodes.length !== 2) {
@@ -357,10 +394,10 @@ function App() {
       return;
     }
 
-    fetchJson(`/compare?areaA=${compareCodes[0]}&areaB=${compareCodes[1]}&time=${selectedTime}&targetAges=${selectedAges.join(",")}`)
+    fetchJson(`/compare?areaA=${compareCodes[0]}&areaB=${compareCodes[1]}&time=${selectedTime}&targetAges=${selectedAges.join(",")}&useAdjustedScore=${useAdjustedScore}`)
       .then(setCompare)
       .catch(() => setCompare(null));
-  }, [compareCodes, selectedTime, selectedAges.join(",")]);
+  }, [compareCodes, selectedTime, selectedAges.join(","), useAdjustedScore]);
 
   return h(
     "main",
@@ -379,7 +416,17 @@ function App() {
         "div",
         null,
         h("h2", null, "희망 운영 시간대"),
-        criteria && h("p", { className: "muted" }, `${criteria.timeLabel} ${criteria.timeRange} · 타깃 ${criteria.targetAges.join(",")}대`),
+        criteria && h("p", { className: "muted" }, `${criteria.timeLabel} ${criteria.timeRange} · 타깃 ${criteria.targetAges.join(",")}대 · ${criteria.useAdjustedScore ? "이상치 보정" : "원점수"}`),
+        h(
+          "label",
+          { className: "ai-toggle" },
+          h("input", {
+            type: "checkbox",
+            checked: useAdjustedScore,
+            onChange: (event) => setUseAdjustedScore(event.target.checked),
+          }),
+          h("span", null, "이상치 보정 점수 사용")
+        ),
         h(
           "label",
           { className: "ai-toggle" },

@@ -258,6 +258,62 @@ h3 {
   overflow-wrap: anywhere;
 }
 
+.quality-badge {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+  border: 1px solid #d8e3df;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #f4faf7;
+  color: #183c34;
+}
+
+.quality-badge span {
+  color: #60716a;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.quality-badge strong {
+  font-size: 14px;
+}
+
+.grade-주의,
+.grade-낮음 {
+  border-color: #ead9aa;
+  background: #fffaf0;
+  color: #6b4a00;
+}
+
+.score-note {
+  margin-top: 3px;
+  color: #6b756e;
+  font-size: 13px;
+}
+
+.caution-box {
+  margin-top: 12px;
+  border: 1px solid #ead9aa;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fffaf0;
+}
+
+.caution-box strong {
+  color: #7b5b10;
+  font-size: 13px;
+}
+
+.caution-box ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #443a24;
+  line-height: 1.45;
+}
+
 .reason-list {
   margin: 12px 0 0;
   padding-left: 18px;

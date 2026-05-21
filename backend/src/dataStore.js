@@ -29,6 +29,13 @@ const SCORE_WEIGHTS = {
   averagePrice: 0.1,
 };
 
+const QUALITY_GRADES = [
+  { min: 80, label: "높음" },
+  { min: 60, label: "보통" },
+  { min: 40, label: "주의" },
+  { min: 0, label: "낮음" },
+];
+
 const AGE_SUFFIX = {
   10: "10",
   20: "20",
@@ -225,6 +232,10 @@ function percentile(values, ratio) {
   return sorted[Math.floor((sorted.length - 1) * ratio)] ?? 0;
 }
 
+function getQualityGrade(score) {
+  return QUALITY_GRADES.find((grade) => score >= grade.min)?.label ?? "낮음";
+}
+
 function getRanges(items, useAdjustedScore = false) {
   const fields = [
     "conversionRate",
@@ -246,7 +257,76 @@ function getRanges(items, useAdjustedScore = false) {
   );
 }
 
-function scoreArea(area, ranges) {
+function buildDataQuality(area, stats) {
+  const salesVolumeScore = normalize(
+    area.totalSalesCount,
+    stats.lowTotalSalesCount,
+    stats.highTotalSalesCount
+  );
+  const populationScore = normalize(
+    area.totalPopulation,
+    stats.lowTotalPopulation,
+    stats.highTotalPopulation
+  );
+  const targetPopulationScore = normalize(
+    area.targetPopulation,
+    stats.lowTargetPopulation,
+    stats.highTargetPopulation
+  );
+  const isHighConversionOutlier =
+    typeof area.conversionRate === "number" &&
+    area.conversionRate >= stats.extremeHighCafeConversionRate;
+  const isLowConversionOutlier =
+    typeof area.conversionRate === "number" &&
+    area.conversionRate <= stats.extremeLowCafeConversionRate;
+  const outlierScore = isHighConversionOutlier || isLowConversionOutlier ? 0.35 : 1;
+
+  const score = round(
+    (salesVolumeScore * 0.35 +
+      populationScore * 0.25 +
+      targetPopulationScore * 0.25 +
+      outlierScore * 0.15) *
+      100,
+    0
+  );
+  const warnings = [];
+
+  if (area.totalSalesCount < stats.lowTotalSalesCount) {
+    warnings.push("매출건수 표본이 작은 편이라 전환효율이 실제보다 크게 흔들릴 수 있습니다.");
+  }
+  if (area.totalPopulation < stats.lowTotalPopulation) {
+    warnings.push("총 유동인구가 낮은 편이라 특정 매장의 영향이 크게 반영됐을 수 있습니다.");
+  }
+  if (area.targetPopulation < stats.lowTargetPopulation) {
+    warnings.push("선택한 타깃 연령대 유동인구 표본이 작아 타깃 적합도 해석에 주의가 필요합니다.");
+  }
+  if (isHighConversionOutlier) {
+    warnings.push("카페전환효율이 상위 1% 수준으로 높아 이상치 가능성이 있습니다.");
+  }
+  if (isLowConversionOutlier) {
+    warnings.push("카페전환효율이 하위 1% 수준으로 낮아 데이터 누락 또는 특수 상권 여부를 확인해야 합니다.");
+  }
+  if (
+    area.selectedTimeSalesRatio - area.selectedTimePopulationRatio > 0.15 &&
+    area.selectedTimePopulationRatio < stats.avgSelectedTimePopulationRatio
+  ) {
+    warnings.push("선택 시간대 매출 집중도가 유동인구보다 높게 나타나 재방문/목적형 소비 영향일 수 있습니다.");
+  }
+
+  return {
+    score,
+    grade: getQualityGrade(score),
+    warnings: warnings.slice(0, 3),
+    factors: {
+      salesVolume: round(salesVolumeScore),
+      populationVolume: round(populationScore),
+      targetPopulationVolume: round(targetPopulationScore),
+      conversionOutlier: isHighConversionOutlier || isLowConversionOutlier,
+    },
+  };
+}
+
+function scoreArea(area, ranges, stats) {
   const conversionScore = normalize(
     area.conversionRate,
     ranges.conversionRate.min,
@@ -273,9 +353,15 @@ function scoreArea(area, ranges) {
     targetSalesScore * SCORE_WEIGHTS.targetSalesRatio +
     timeScore * SCORE_WEIGHTS.selectedTimeSalesRatio +
     priceScore * SCORE_WEIGHTS.averagePrice;
+  const dataQuality = buildDataQuality(area, stats);
+  const reliabilityFactor = 0.8 + (dataQuality.score / 100) * 0.2;
+  const adjustedRawScore = rawScore * reliabilityFactor;
 
   return {
-    score: round(rawScore * 100, 1),
+    score: round(adjustedRawScore * 100, 1),
+    baseScore: round(rawScore * 100, 1),
+    reliabilityFactor: round(reliabilityFactor),
+    dataQuality,
     scoreBreakdown: {
       cafeConversionRate: round(conversionScore * SCORE_WEIGHTS.conversionRate * 100, 1),
       mzSalesRatio: round(targetSalesScore * SCORE_WEIGHTS.targetSalesRatio * 100, 1),
@@ -290,7 +376,7 @@ function getStats(enrichedAreas) {
     const values = enrichedAreas
       .map((area) => area[field])
       .filter((value) => typeof value === "number");
-    return values.reduce((sum, value) => sum + value, 0) / values.length;
+    return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
   };
 
   const percentile = (field, ratio) => {
@@ -305,7 +391,16 @@ function getStats(enrichedAreas) {
     avgMzSalesRatio: average("targetSalesRatio"),
     avgAverageOrderValue: average("averagePrice"),
     avgCafeConversionRate: average("conversionRate"),
+    avgSelectedTimePopulationRatio: average("selectedTimePopulationRatio"),
     highCafeConversionRate: percentile("conversionRate", 0.75),
+    extremeLowCafeConversionRate: percentile("conversionRate", 0.01),
+    extremeHighCafeConversionRate: percentile("conversionRate", 0.99),
+    lowTotalSalesCount: percentile("totalSalesCount", 0.1),
+    highTotalSalesCount: percentile("totalSalesCount", 0.75),
+    lowTotalPopulation: percentile("totalPopulation", 0.1),
+    highTotalPopulation: percentile("totalPopulation", 0.75),
+    lowTargetPopulation: percentile("targetPopulation", 0.1),
+    highTargetPopulation: percentile("targetPopulation", 0.75),
   };
 }
 
@@ -315,6 +410,9 @@ function toRecommendation(area, rank, scored, timeOption, stats) {
     areaCode: area.areaCode,
     areaName: area.areaName,
     score: scored.score,
+    baseScore: scored.baseScore,
+    reliabilityFactor: scored.reliabilityFactor,
+    dataQuality: scored.dataQuality,
     metrics: {
       targetSalesRatio: round(area.targetSalesRatio),
       targetPopulationRatio: round(area.targetPopulationRatio),
@@ -332,6 +430,7 @@ function toRecommendation(area, rank, scored, timeOption, stats) {
       mzPopulation: round(area.targetPopulation, 0),
     },
     scoreBreakdown: scored.scoreBreakdown,
+    cautions: scored.dataQuality.warnings,
     strategyGuide: getStrategyGuide(timeOption),
   };
 
@@ -377,7 +476,7 @@ function getRecommendations(query = {}) {
   const maxItems = Math.min(Math.max(Number.parseInt(query.limit, 10) || 10, 1), 50);
   const items = prepared.enriched
     .map((area) => {
-      const scored = scoreArea(area, prepared.ranges);
+      const scored = scoreArea(area, prepared.ranges, prepared.stats);
       return toRecommendation(area, 0, scored, prepared.timeOption, prepared.stats);
     })
     .sort((a, b) => b.score - a.score)
@@ -464,13 +563,16 @@ function getAreaDetail(areaCode, query = {}) {
     return null;
   }
 
-  const scored = scoreArea(area, prepared.ranges);
+  const scored = scoreArea(area, prepared.ranges, prepared.stats);
   const recommendation = toRecommendation(area, null, scored, prepared.timeOption, prepared.stats);
 
   return {
     areaCode: area.areaCode,
     areaName: area.areaName,
     score: recommendation.score,
+    baseScore: recommendation.baseScore,
+    reliabilityFactor: recommendation.reliabilityFactor,
+    dataQuality: recommendation.dataQuality,
     metrics: {
       totalSalesAmount: area.totalSalesAmount,
       totalSalesCount: area.totalSalesCount,
@@ -498,6 +600,7 @@ function getAreaDetail(areaCode, query = {}) {
       TIME_OPTIONS.map((option) => [option.value, round(area.timePopulationRatios[option.value])])
     ),
     scoreBreakdown: recommendation.scoreBreakdown,
+    cautions: recommendation.cautions,
     reasons: recommendation.reasons,
     strategyGuide: recommendation.strategyGuide,
   };
@@ -515,7 +618,9 @@ async function getAreaDetailWithAi(areaCode, time = "evening", ai = "false", ext
     areaCode: detail.areaCode,
     areaName: detail.areaName,
     score: detail.score,
+    dataQuality: detail.dataQuality,
     metrics: detail.metrics,
+    cautions: detail.cautions,
     reasons: detail.reasons,
     strategyGuide: detail.strategyGuide,
   };
