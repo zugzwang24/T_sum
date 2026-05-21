@@ -21,7 +21,7 @@ function buildRuleBasedReasons(area, scored, timeOption, stats) {
   }
 
   if (area.mzSalesRatio >= stats.avgMzSalesRatio) {
-    reasons.push("2030세대 매출비율이 높아 MZ 타깃 카페에 적합합니다.");
+    reasons.push("선택한 타깃 연령대의 매출비율이 높아 해당 고객층을 겨냥한 카페에 적합합니다.");
   }
 
   if (scored.selectedTimeSalesRatio >= area.peakTimeSalesRatio * 0.9) {
@@ -35,7 +35,7 @@ function buildRuleBasedReasons(area, scored, timeOption, stats) {
   }
 
   if (area.mzPopulationRatio >= 0.35) {
-    reasons.push("2030 유동인구 비율이 높아 젊은 고객의 반복 방문 수요를 기대할 수 있습니다.");
+    reasons.push("선택한 타깃 연령대의 유동인구 비율이 높아 반복 방문 수요를 기대할 수 있습니다.");
   }
 
   if (reasons.length < 2) {
@@ -46,10 +46,18 @@ function buildRuleBasedReasons(area, scored, timeOption, stats) {
 }
 
 function buildFallbackAiReason(item, timeOption) {
-  return `${item.areaName}은 ${timeOption.label} 시간대 기준 추천점수 ${item.score}점을 기록했습니다. 2030 매출비율은 ${(item.metrics.mzSalesRatio * 100).toFixed(1)}%, 카페전환효율은 ${(item.metrics.cafeConversionRate * 100).toFixed(2)}%, 선택 시간대 매출비중은 ${(item.metrics.selectedTimeSalesRatio * 100).toFixed(1)}%입니다. ${item.reasons.join(" ")} ${item.strategyGuide}`;
+  const targetSalesRatio = item.metrics.targetSalesRatio ?? item.metrics.mzSalesRatio;
+  const conversionRate = item.metrics.conversionRate ?? item.metrics.cafeConversionRate;
+  const averagePrice = item.metrics.averagePrice ?? item.metrics.averageOrderValue;
+
+  return `${item.areaName}은 ${timeOption.label} 시간대 기준 추천점수 ${item.score}점을 기록했습니다. 타깃 매출비율은 ${(targetSalesRatio * 100).toFixed(1)}%, 카페전환효율은 ${(conversionRate * 100).toFixed(2)}%, 선택 시간대 매출비중은 ${(item.metrics.selectedTimeSalesRatio * 100).toFixed(1)}%, 객단가는 ${averagePrice}원입니다. ${item.reasons.join(" ")} ${item.strategyGuide}`;
 }
 
 function buildPrompt(item, timeOption) {
+  const targetSalesRatio = item.metrics.targetSalesRatio ?? item.metrics.mzSalesRatio;
+  const conversionRate = item.metrics.conversionRate ?? item.metrics.cafeConversionRate;
+  const averagePrice = item.metrics.averagePrice ?? item.metrics.averageOrderValue;
+
   return [
     "너는 카페 창업 상권 분석가다.",
     "추천 순위와 수치는 절대 바꾸지 말고, 제공된 지표만 근거로 한국어 설명을 작성해라.",
@@ -59,10 +67,11 @@ function buildPrompt(item, timeOption) {
     `행정동명: ${item.areaName}`,
     `선택 시간대: ${timeOption.label} (${timeOption.range})`,
     `추천점수: ${item.score}`,
-    `2030 매출비율: ${(item.metrics.mzSalesRatio * 100).toFixed(1)}%`,
-    `카페전환효율: ${(item.metrics.cafeConversionRate * 100).toFixed(2)}%`,
+    `타깃 매출비율: ${(targetSalesRatio * 100).toFixed(1)}%`,
+    `카페전환효율: ${(conversionRate * 100).toFixed(2)}%`,
     `선택시간대 매출비중: ${(item.metrics.selectedTimeSalesRatio * 100).toFixed(1)}%`,
-    `객단가: ${item.metrics.averageOrderValue}원`,
+    `선택시간대 유동인구비중: ${item.metrics.selectedTimePopulationRatio === null || item.metrics.selectedTimePopulationRatio === undefined ? "데이터 없음" : `${(item.metrics.selectedTimePopulationRatio * 100).toFixed(1)}%`}`,
+    `객단가: ${averagePrice}원`,
     `기본 추천 사유: ${item.reasons.join(" ")}`,
     `운영 전략: ${item.strategyGuide}`,
   ].join("\n");

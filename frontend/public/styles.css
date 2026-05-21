@@ -91,6 +91,32 @@ h3 {
   gap: 8px;
 }
 
+.selector-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.age-selector {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.age-selector button {
+  min-height: 40px;
+  border: 1px solid #d9e0d9;
+  border-radius: 8px;
+  background: #f9faf8;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.age-selector button.active {
+  border-color: #1f6b57;
+  background: #edf8f3;
+  color: #14513f;
+}
+
 .ai-toggle {
   display: inline-flex;
   gap: 8px;
@@ -207,7 +233,7 @@ h3 {
 .card-metrics,
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 8px;
   margin-top: 12px;
 }
@@ -413,6 +439,10 @@ aside {
 
   .time-selector {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .age-selector {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   h1 {

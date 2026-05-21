@@ -8,8 +8,6 @@ const {
   searchAreas,
 } = require("./dataStore");
 
-const express = require("express");
-const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
 
 function sendJson(res, statusCode, data) {
@@ -54,7 +52,7 @@ async function handleRequest(req, res) {
     return;
   }
 
-  if (pathname === "/api/recommendations") {
+  if (pathname === "/api/recommendations" || pathname === "/api/recommend") {
     if (!getTimeOption(query.time || "evening")) {
       sendError(res, 400, "올바르지 않은 시간대입니다.");
       return;
@@ -70,12 +68,15 @@ async function handleRequest(req, res) {
   }
 
   if (pathname === "/api/compare") {
-    if (!query.areaA || !query.areaB) {
+    const areaA = query.areaA || query.dongA;
+    const areaB = query.areaB || query.dongB;
+
+    if (!areaA || !areaB) {
       sendError(res, 400, "areaA와 areaB가 필요합니다.");
       return;
     }
 
-    const result = compareAreas(query.areaA, query.areaB, query.time || "evening");
+    const result = compareAreas(areaA, areaB, query);
     if (!result) {
       sendError(res, 404, "비교할 상권 또는 시간대를 찾을 수 없습니다.");
       return;
@@ -87,7 +88,12 @@ async function handleRequest(req, res) {
 
   const detailMatch = pathname.match(/^\/api\/areas\/([^/]+)$/);
   if (detailMatch) {
-    const result = await getAreaDetailWithAi(detailMatch[1], query.time || "evening", query.ai);
+    const result = await getAreaDetailWithAi(
+      detailMatch[1],
+      query.time || "evening",
+      query.ai,
+      query
+    );
     if (!result) {
       sendError(res, 404, "상권 또는 시간대를 찾을 수 없습니다.");
       return;
@@ -109,8 +115,4 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`황금을 찾아라 API 서버 실행 중: http://localhost:${PORT}`);
-});
-
-app.get("/", (req, res) => {
-  res.send("T_sum backend is running");
 });
