@@ -175,7 +175,6 @@ async function callOpenAi(prompt) {
             content: prompt,
           },
         ],
-        temperature: 0.7,
       }),
     });
 
