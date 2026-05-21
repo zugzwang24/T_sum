@@ -53,7 +53,7 @@ night     심야 21~24
 
 ## AI 해설
 
-배포 환경에서는 OpenAI Responses API와 `gpt-5-nano`를 사용해 상권 해설을 생성합니다. API 키는 프론트엔드가 아니라 백엔드 환경변수에만 저장합니다.
+배포 환경에서는 OpenAI Chat Completions API와 `gpt-5-nano`를 사용해 상권 해설을 생성합니다. API 키는 프론트엔드가 아니라 백엔드 환경변수에만 저장합니다.
 
 ```bash
 OPENAI_API_KEY=sk-...

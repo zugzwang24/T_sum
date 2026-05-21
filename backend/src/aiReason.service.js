@@ -1,12 +1,9 @@
 const LOCAL_LLM_URL = process.env.LOCAL_LLM_URL || "http://localhost:11434/api/generate";
 const LOCAL_LLM_MODEL = process.env.LOCAL_LLM_MODEL || "llama3.1";
-const OPENAI_API_URL = process.env.OPENAI_API_URL || "https://api.openai.com/v1/responses";
+const OPENAI_API_URL =
+  process.env.OPENAI_API_URL || "https://api.openai.com/v1/chat/completions";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5-nano";
 const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 15000);
-const configuredMaxOutputTokens = Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 700);
-const OPENAI_MAX_OUTPUT_TOKENS = Number.isFinite(configuredMaxOutputTokens)
-  ? Math.max(configuredMaxOutputTokens, 500)
-  : 700;
 let hasLoggedOpenAiResponse = false;
 
 function getStrategyGuide(timeOption) {
@@ -131,20 +128,12 @@ function getAiConfig() {
 }
 
 function extractOpenAiText(data) {
-  if (typeof data.output_text === "string" && data.output_text.trim()) {
-    return data.output_text.trim();
+  const content = data.choices?.[0]?.message?.content;
+  if (typeof content === "string" && content.trim()) {
+    return content.trim();
   }
 
-  const parts = [];
-  for (const item of data.output || []) {
-    for (const content of item.content || []) {
-      if (typeof content.text === "string" && content.text.trim()) {
-        parts.push(content.text);
-      }
-    }
-  }
-
-  return parts.join("\n").trim();
+  return "";
 }
 
 function logOpenAiResponse(data) {
@@ -175,8 +164,18 @@ async function callOpenAi(prompt) {
       signal: controller.signal,
       body: JSON.stringify({
         model: OPENAI_MODEL,
-        input: prompt,
-        max_output_tokens: OPENAI_MAX_OUTPUT_TOKENS,
+        messages: [
+          {
+            role: "system",
+            content:
+              "너는 상권 추천 설명 도우미다. 제공된 정량 지표만 사용하고, 순위와 점수를 새로 만들거나 바꾸지 마라.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        temperature: 0.7,
       }),
     });
 
@@ -190,7 +189,7 @@ async function callOpenAi(prompt) {
 
     const text = extractOpenAiText(data);
     if (!text) {
-      throw new Error(`openai response was empty: ${JSON.stringify(data)}`);
+      throw new Error(`openai chat completion was empty: ${JSON.stringify(data)}`);
     }
 
     return text;
