@@ -1,4 +1,4 @@
-const API_BASE_URL = "http://localhost:4000/api";
+const API_URL = import.meta.env.VITE_API_URL;
 const h = React.createElement;
 
 const TIME_OPTIONS = [
@@ -27,7 +27,7 @@ function formatPercent(value, digits = 1) {
 }
 
 async function fetchJson(path) {
-  const response = await fetch(`${API_BASE_URL}${path}`);
+  const response = await fetch(`${API_URL}${path}`);
   if (!response.ok) {
     throw new Error(`API request failed: ${response.status}`);
   }
