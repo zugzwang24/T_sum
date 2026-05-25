@@ -215,13 +215,16 @@ function RecommendationCard({ item, selected, checked, onSelect, onToggleCompare
 
 function getAiReasonTitle(aiReason, useAi) {
   if (!aiReason) {
-    return useAi ? "로컬 LLM 해설" : "데이터 기반 해설";
+    return useAi ? "GPT-5 nano 해설" : "데이터 기반 해설";
+  }
+  if (aiReason.mode === "openai") {
+    return "GPT-5 nano 해설 완료";
   }
   if (aiReason.mode === "local-llm") {
-    return "로컬 LLM 해설 완료";
+    return "LLM 해설 완료";
   }
   if (aiReason.mode === "rule-fallback") {
-    return "로컬 LLM 연결 실패 - 규칙 기반 해설";
+    return "AI 연결 실패 - 규칙 기반 해설";
   }
   return "데이터 기반 해설";
 }
@@ -229,6 +232,9 @@ function getAiReasonTitle(aiReason, useAi) {
 function getAiReasonBadge(aiReason, useAi) {
   if (!aiReason) {
     return useAi ? "생성 중" : "규칙 기반";
+  }
+  if (aiReason.mode === "openai") {
+    return aiReason.model || "gpt-5-nano";
   }
   if (aiReason.mode === "local-llm") {
     return "Ollama 사용";
@@ -244,8 +250,8 @@ function DetailPanel({ detail, loading, useAi }) {
     return h(
       "section",
       { className: "side-panel" },
-      h("span", { className: "eyebrow" }, useAi ? "로컬 LLM 해설 생성 중" : "상권 상세"),
-      h("p", { className: "muted" }, useAi ? "선택한 상권 데이터를 Ollama에 전달해 해설을 만들고 있습니다." : "상권 상세 지표를 불러오는 중입니다.")
+      h("span", { className: "eyebrow" }, useAi ? "GPT-5 nano 해설 생성 중" : "상권 상세"),
+      h("p", { className: "muted" }, useAi ? "선택한 상권 데이터를 OpenAI API에 전달해 해설을 만들고 있습니다." : "상권 상세 지표를 불러오는 중입니다.")
     );
   }
 
@@ -295,7 +301,7 @@ function DetailPanel({ detail, loading, useAi }) {
     h("p", { className: "strategy" }, detail.strategyGuide),
     h(
       "div",
-      { className: `ai-reason detail-ai ${detail.aiReason?.mode === "local-llm" ? "llm-success" : ""}` },
+      { className: `ai-reason detail-ai ${detail.aiReason?.mode === "local-llm" || detail.aiReason?.mode === "openai" ? "llm-success" : ""}` },
       h(
         "div",
         { className: "ai-reason-head" },
@@ -303,10 +309,10 @@ function DetailPanel({ detail, loading, useAi }) {
         h("b", null, getAiReasonBadge(detail.aiReason, useAi))
       ),
       loading && useAi
-        ? h("p", null, "로컬 LLM 해설을 다시 생성하는 중입니다. 추천 순위와 점수는 이미 계산된 정량 지표를 그대로 사용합니다.")
+        ? h("p", null, "GPT-5 nano 해설을 다시 생성하는 중입니다. 추천 순위와 점수는 이미 계산된 정량 지표를 그대로 사용합니다.")
         : h("p", null, detail.aiReason?.text ?? "선택한 상권의 지표를 바탕으로 해설을 준비 중입니다."),
       detail.aiReason?.error &&
-        h("small", { className: "ai-error" }, `Ollama 응답 실패: ${detail.aiReason.error}`)
+        h("small", { className: "ai-error" }, `AI 응답 실패: ${detail.aiReason.error}`)
     )
   );
 }
@@ -449,7 +455,7 @@ function App() {
             checked: useAi,
             onChange: (event) => setUseAi(event.target.checked),
           }),
-          h("span", null, "상권 클릭 시 로컬 LLM 해설 생성")
+          h("span", null, "상권 클릭 시 GPT-5 nano 해설 생성")
         )
       ),
       h(

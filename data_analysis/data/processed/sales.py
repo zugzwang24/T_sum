@@ -92,6 +92,11 @@ def build_sales_features(
         & (sales["기준_년분기_코드"].isin(TARGET_QUARTERS))
     ].copy()
     filtered = add_row_features(filtered)
+    period_counts = (
+        filtered.groupby(["행정동_코드", "행정동_코드_명"])["기준_년분기_코드"]
+        .nunique()
+        .reset_index(name="집계_기간수")
+    )
 
     agg_dict = {
         "당월_매출_금액": ("당월_매출_금액", "sum"),
@@ -112,6 +117,26 @@ def build_sales_features(
         filtered.groupby(["행정동_코드", "행정동_코드_명"], as_index=False)
         .agg(**agg_dict)
     )
+    grouped = grouped.merge(
+        period_counts,
+        on=["행정동_코드", "행정동_코드_명"],
+        how="left",
+    )
+
+    average_cols = [
+        "당월_매출_금액",
+        "당월_매출_건수",
+        "총매출건수",
+        "2030_매출건수",
+        *AGE_COUNT_COLS,
+        *AGE_AMOUNT_COLS,
+        *TIME_AMOUNT_COLS.values(),
+    ]
+    for col in average_cols:
+        grouped[col] = safe_divide(
+            grouped[col].astype(float),
+            grouped["집계_기간수"].astype(float),
+        )
 
     grouped["2030_매출비율"] = safe_divide(
         grouped["2030_매출건수"], grouped["총매출건수"]

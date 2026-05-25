@@ -9,6 +9,7 @@ from sales import build_sales_features
 
 PROCESSED_DIR = Path(__file__).resolve().parent
 FINAL_OUTPUT = PROCESSED_DIR / "cafe_area_features.csv"
+WEEKS_PER_MONTH = 365.25 / 12 / 7
 
 
 def safe_divide(numerator, denominator):
@@ -30,14 +31,14 @@ def build_processed_features(
     )
 
     final["업종명"] = industry_name
-    final["월_유동인구추정"] = final["총_유동인구_수"] * 30
+    final["월_유동인구추정"] = final["총_유동인구_수"] * WEEKS_PER_MONTH
     final["카페전환효율"] = safe_divide(
         final["당월_매출_건수"].astype(float),
         final["월_유동인구추정"].astype(float),
     )
     final["2030_카페전환효율"] = safe_divide(
         final["2030_매출건수"].astype(float),
-        final["2030_유동인구"].astype(float) * 30,
+        final["2030_유동인구"].astype(float) * WEEKS_PER_MONTH,
     )
 
     output_path = Path(output_path)

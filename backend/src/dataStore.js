@@ -13,6 +13,7 @@ const DATA_PATH = process.env.DATA_PATH
 
 const DEFAULT_INDUSTRY = "커피-음료";
 const DEFAULT_TARGET_AGES = ["20", "30"];
+const WEEKS_PER_MONTH = 365.25 / 12 / 7;
 
 const TIME_OPTIONS = [
   { value: "dawn", label: "새벽", range: "00~06", salesColumn: "새벽_매출비중", populationColumn: "새벽_유동인구비중" },
@@ -217,7 +218,7 @@ function enrichArea(area, timeOption, targetAges) {
     targetPopulationRatio: safeDivide(targetPopulation, totalPopulation),
     monthlyEstimatedPopulation: area["월_유동인구추정"],
     conversionRate: area["카페전환효율"],
-    targetConversionRate: safeDivide(targetSalesCount, targetPopulation * 30),
+    targetConversionRate: safeDivide(targetSalesCount, targetPopulation * WEEKS_PER_MONTH),
     selectedTimeSalesRatio,
     selectedTimePopulationRatio,
     averagePrice: area["객단가"],
