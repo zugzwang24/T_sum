@@ -22,7 +22,7 @@ def build_processed_features(
     industry_name="커피-음료",
 ):
     pop_features = build_pop_features()
-    sales_features = build_sales_features(industry_name=industry_name)
+    sales_features = build_sales_features(industry_name=industry_name, output_path=None)
 
     final = sales_features.merge(
         pop_features,

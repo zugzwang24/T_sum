@@ -263,12 +263,13 @@ targetAges=all
 
 추천 점수는 `backend/src/dataStore.js`에서 계산한다.
 
-현재 추천 점수의 구성 요소는 다음 네 가지다.
+현재 추천 점수의 구성 요소는 다음 다섯 가지다.
 
 ```text
-카페전환효율: 35%
-타깃 매출비율: 30%
-선택 시간대 매출비중: 25%
+카페전환효율: 30%
+타깃 매출비율: 25%
+타깃 유동인구 규모: 20%
+선택 시간대 매출비중: 15%
 객단가: 10%
 ```
 
@@ -276,9 +277,10 @@ targetAges=all
 
 ```js
 const SCORE_WEIGHTS = {
-  conversionRate: 0.35,
-  targetSalesRatio: 0.3,
-  selectedTimeSalesRatio: 0.25,
+  conversionRate: 0.3,
+  targetSalesRatio: 0.25,
+  targetPopulation: 0.2,
+  selectedTimeSalesRatio: 0.15,
   averagePrice: 0.1,
 };
 ```
@@ -299,9 +301,10 @@ normalizedValue = clamp(normalizedValue, 0, 1)
 
 ```text
 baseScore =
-  normalized(카페전환효율) * 0.35
-+ normalized(타깃 매출비율) * 0.30
-+ normalized(선택 시간대 매출비중) * 0.25
+  normalized(카페전환효율) * 0.30
++ normalized(타깃 매출비율) * 0.25
++ normalized(타깃 유동인구 규모) * 0.20
++ normalized(선택 시간대 매출비중) * 0.15
 + normalized(객단가) * 0.10
 ```
 
@@ -355,23 +358,25 @@ max = 99 percentile
 
 ### 10.1 신뢰도 구성 요소
 
-데이터 신뢰도는 네 가지 요소로 구성된다.
+데이터 신뢰도는 다섯 가지 요소로 구성된다.
 
 ```text
-총 매출건수 규모: 35%
-총 유동인구 규모: 25%
-타깃 유동인구 규모: 25%
-카페전환효율 이상치 여부: 15%
+총 매출건수 규모: 30%
+총 유동인구 규모: 20%
+타깃 유동인구 규모: 20%
+분기별 매출 안정성: 20%
+카페전환효율 이상치 여부: 10%
 ```
 
 코드 기준 산식은 다음과 같다.
 
 ```text
 dataQualityScore =
-  salesVolumeScore * 0.35
-+ populationScore * 0.25
-+ targetPopulationScore * 0.25
-+ outlierScore * 0.15
+  salesVolumeScore * 0.30
++ populationScore * 0.20
++ targetPopulationScore * 0.20
++ salesStabilityScore * 0.20
++ outlierScore * 0.10
 ```
 
 마지막에 100을 곱해서 100점 만점으로 만든다.
@@ -401,6 +406,15 @@ targetPopulationScore = normalized(타깃 유동인구, p10, p75)
 ```
 
 여기서 `p10`은 하위 10% 지점, `p75`는 상위 25% 지점이다. 평균이나 최댓값 대신 percentile을 사용한 이유는, 표본 규모가 매우 큰 일부 중심 상권이 신뢰도 기준을 독점하지 않게 하기 위해서다.
+
+분기별 매출 안정성 점수:
+
+```text
+분기별_매출안정성 = 1 / (1 + 분기별 매출건수 변동계수)
+salesStabilityScore = 분기별_매출안정성
+```
+
+분기별 매출건수 변동계수는 `표준편차 / 평균`이다. 분기별 매출건수의 흔들림이 작으면 변동계수가 낮아지고, `분기별_매출안정성`은 1에 가까워진다. 반대로 특정 분기에만 매출이 몰리면 안정성 점수가 낮아진다.
 
 이상치 점수:
 

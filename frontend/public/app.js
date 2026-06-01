@@ -137,6 +137,7 @@ function ScoreBreakdown({ breakdown }) {
   const rows = [
     ["전환효율", breakdown.cafeConversionRate],
     ["타깃 매출", breakdown.mzSalesRatio],
+    ["타깃 유동", breakdown.targetPopulationVolume],
     ["선택 시간", breakdown.selectedTimeSalesRatio],
     ["객단가", breakdown.averageOrderValue],
   ];
@@ -149,8 +150,8 @@ function ScoreBreakdown({ breakdown }) {
         "div",
         { className: "breakdown-row", key: label },
         h("span", null, label),
-        h("div", { className: "bar-track" }, h("div", { className: "bar-fill", style: { width: `${Math.max(value, 2)}%` } })),
-        h("strong", null, value.toFixed(1))
+        h("div", { className: "bar-track" }, h("div", { className: "bar-fill", style: { width: `${Math.max(value ?? 0, 2)}%` } })),
+        h("strong", null, (value ?? 0).toFixed(1))
       )
     )
   );

@@ -54,6 +54,17 @@ def most_common(series):
     return mode.iat[0]
 
 
+def sales_stability(series):
+    values = series.dropna().astype(float)
+    if len(values) < 2:
+        return 0.5
+    mean = values.mean()
+    if mean <= 0:
+        return 0
+    coefficient_of_variation = values.std(ddof=0) / mean
+    return 1 / (1 + coefficient_of_variation)
+
+
 def add_row_features(filtered):
     filtered = filtered.copy()
     filtered["총매출건수"] = filtered[AGE_COUNT_COLS].sum(axis=1)
@@ -97,6 +108,18 @@ def build_sales_features(
         .nunique()
         .reset_index(name="집계_기간수")
     )
+    quarterly_sales = (
+        filtered.groupby(
+            ["행정동_코드", "행정동_코드_명", "기준_년분기_코드"],
+            as_index=False,
+        )["당월_매출_건수"]
+        .sum()
+    )
+    sales_stability_features = (
+        quarterly_sales.groupby(["행정동_코드", "행정동_코드_명"])["당월_매출_건수"]
+        .apply(sales_stability)
+        .reset_index(name="분기별_매출안정성")
+    )
 
     agg_dict = {
         "당월_매출_금액": ("당월_매출_금액", "sum"),
@@ -119,6 +142,11 @@ def build_sales_features(
     )
     grouped = grouped.merge(
         period_counts,
+        on=["행정동_코드", "행정동_코드_명"],
+        how="left",
+    )
+    grouped = grouped.merge(
+        sales_stability_features,
         on=["행정동_코드", "행정동_코드_명"],
         how="left",
     )
@@ -151,9 +179,10 @@ def build_sales_features(
             grouped["당월_매출_금액"].astype(float),
         )
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    grouped.to_csv(output_path, index=False, encoding="utf-8-sig")
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        grouped.to_csv(output_path, index=False, encoding="utf-8-sig")
     return grouped
 
 

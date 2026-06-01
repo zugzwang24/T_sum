@@ -9,7 +9,7 @@ const {
 
 const DATA_PATH = process.env.DATA_PATH
   ? path.resolve(process.env.DATA_PATH)
-  : path.resolve(__dirname, "../../data_analysis/data/processed/cafe_area_features.csv");
+  : path.resolve(__dirname, "../../../data_analysis/data/processed/cafe_area_features.csv");
 
 const DEFAULT_INDUSTRY = "커피-음료";
 const DEFAULT_TARGET_AGES = ["20", "30"];
@@ -25,9 +25,10 @@ const TIME_OPTIONS = [
 ];
 
 const SCORE_WEIGHTS = {
-  conversionRate: 0.35,
-  targetSalesRatio: 0.3,
-  selectedTimeSalesRatio: 0.25,
+  conversionRate: 0.3,
+  targetSalesRatio: 0.25,
+  targetPopulation: 0.2,
+  selectedTimeSalesRatio: 0.15,
   averagePrice: 0.1,
 };
 
@@ -219,6 +220,9 @@ function enrichArea(area, timeOption, targetAges) {
     monthlyEstimatedPopulation: area["월_유동인구추정"],
     conversionRate: area["카페전환효율"],
     targetConversionRate: safeDivide(targetSalesCount, targetPopulation * WEEKS_PER_MONTH),
+    salesPeriodCount: area["집계_기간수"],
+    salesStability:
+      typeof area["분기별_매출안정성"] === "number" ? area["분기별_매출안정성"] : 0.5,
     selectedTimeSalesRatio,
     selectedTimePopulationRatio,
     averagePrice: area["객단가"],
@@ -257,6 +261,7 @@ function getRanges(items, useAdjustedScore = false) {
   const fields = [
     "conversionRate",
     "targetSalesRatio",
+    "targetPopulation",
     "selectedTimeSalesRatio",
     "averagePrice",
   ];
@@ -290,6 +295,7 @@ function buildDataQuality(area, stats) {
     stats.lowTargetPopulation,
     stats.highTargetPopulation
   );
+  const salesStabilityScore = normalize(area.salesStability, 0, 1);
   const isHighConversionOutlier =
     typeof area.conversionRate === "number" &&
     area.conversionRate >= stats.extremeHighCafeConversionRate;
@@ -299,10 +305,11 @@ function buildDataQuality(area, stats) {
   const outlierScore = isHighConversionOutlier || isLowConversionOutlier ? 0.35 : 1;
 
   const score = round(
-    (salesVolumeScore * 0.35 +
-      populationScore * 0.25 +
-      targetPopulationScore * 0.25 +
-      outlierScore * 0.15) *
+    (salesVolumeScore * 0.3 +
+      populationScore * 0.2 +
+      targetPopulationScore * 0.2 +
+      salesStabilityScore * 0.2 +
+      outlierScore * 0.1) *
       100,
     0
   );
@@ -316,6 +323,9 @@ function buildDataQuality(area, stats) {
   }
   if (area.targetPopulation < stats.lowTargetPopulation) {
     warnings.push("선택한 타깃 연령대 유동인구 표본이 작아 타깃 적합도 해석에 주의가 필요합니다.");
+  }
+  if (area.salesStability < stats.lowSalesStability) {
+    warnings.push("분기별 매출 변동이 큰 편이라 특정 기간의 이벤트나 계절성 영향을 확인해야 합니다.");
   }
   if (isHighConversionOutlier) {
     warnings.push("카페전환효율이 상위 1% 수준으로 높아 이상치 가능성이 있습니다.");
@@ -338,6 +348,7 @@ function buildDataQuality(area, stats) {
       salesVolume: round(salesVolumeScore),
       populationVolume: round(populationScore),
       targetPopulationVolume: round(targetPopulationScore),
+      salesStability: round(salesStabilityScore),
       conversionOutlier: isHighConversionOutlier || isLowConversionOutlier,
     },
   };
@@ -354,6 +365,11 @@ function scoreArea(area, ranges, stats) {
     ranges.targetSalesRatio.min,
     ranges.targetSalesRatio.max
   );
+  const targetPopulationScore = normalize(
+    area.targetPopulation,
+    ranges.targetPopulation.min,
+    ranges.targetPopulation.max
+  );
   const timeScore = normalize(
     area.selectedTimeSalesRatio,
     ranges.selectedTimeSalesRatio.min,
@@ -368,6 +384,7 @@ function scoreArea(area, ranges, stats) {
   const rawScore =
     conversionScore * SCORE_WEIGHTS.conversionRate +
     targetSalesScore * SCORE_WEIGHTS.targetSalesRatio +
+    targetPopulationScore * SCORE_WEIGHTS.targetPopulation +
     timeScore * SCORE_WEIGHTS.selectedTimeSalesRatio +
     priceScore * SCORE_WEIGHTS.averagePrice;
   const dataQuality = buildDataQuality(area, stats);
@@ -382,6 +399,7 @@ function scoreArea(area, ranges, stats) {
     scoreBreakdown: {
       cafeConversionRate: round(conversionScore * SCORE_WEIGHTS.conversionRate * 100, 1),
       mzSalesRatio: round(targetSalesScore * SCORE_WEIGHTS.targetSalesRatio * 100, 1),
+      targetPopulationVolume: round(targetPopulationScore * SCORE_WEIGHTS.targetPopulation * 100, 1),
       selectedTimeSalesRatio: round(timeScore * SCORE_WEIGHTS.selectedTimeSalesRatio * 100, 1),
       averageOrderValue: round(priceScore * SCORE_WEIGHTS.averagePrice * 100, 1),
     },
@@ -418,6 +436,7 @@ function getStats(enrichedAreas) {
     highTotalPopulation: percentile("totalPopulation", 0.75),
     lowTargetPopulation: percentile("targetPopulation", 0.1),
     highTargetPopulation: percentile("targetPopulation", 0.75),
+    lowSalesStability: percentile("salesStability", 0.25),
   };
 }
 
@@ -432,8 +451,10 @@ function toRecommendation(area, rank, scored, timeOption, stats) {
     dataQuality: scored.dataQuality,
     metrics: {
       targetSalesRatio: round(area.targetSalesRatio),
+      targetPopulation: round(area.targetPopulation, 0),
       targetPopulationRatio: round(area.targetPopulationRatio),
       conversionRate: round(area.conversionRate),
+      salesStability: round(area.salesStability),
       selectedTimeSalesRatio: round(area.selectedTimeSalesRatio),
       selectedTimePopulationRatio: round(area.selectedTimePopulationRatio),
       averagePrice: round(area.averagePrice, 0),
@@ -633,6 +654,8 @@ function getAreaDetail(areaCode, query = {}) {
       totalSalesCount: area.totalSalesCount,
       totalPopulation: area.totalPopulation,
       targetPopulation: area.targetPopulation,
+      salesPeriodCount: area.salesPeriodCount,
+      salesStability: round(area.salesStability),
       targetSalesRatio: round(area.targetSalesRatio),
       targetPopulationRatio: round(area.targetPopulationRatio),
       conversionRate: round(area.conversionRate),
