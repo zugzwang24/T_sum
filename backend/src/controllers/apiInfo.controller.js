@@ -4,6 +4,15 @@ function getApiInfo(req, res) {
     status: "ok",
     endpoints: {
       health: "/api/health",
+      register: "POST /api/auth/register",
+      login: "POST /api/auth/login",
+      me: "GET /api/auth/me",
+      savedAreas: "GET/POST /api/saved-areas",
+      deleteSavedArea: "DELETE /api/saved-areas/:id",
+      comparisons: "GET/POST /api/comparisons",
+      comparisonDetail: "GET /api/comparisons/:comparisonId",
+      addComparisonItem: "POST /api/comparisons/:comparisonId/items",
+      deleteComparisonItem: "DELETE /api/comparisons/:comparisonId/items/:itemId",
       meta: "/api/meta",
       recommendations: "/api/recommendations?time=evening&targetAges=20,30&limit=10",
       recommendationAlias: "/api/recommend?time=evening&targetAges=20,30&limit=10",
@@ -17,4 +26,3 @@ function getApiInfo(req, res) {
 module.exports = {
   getApiInfo,
 };
-

@@ -132,6 +132,15 @@ function rowToObject(headers, row) {
   return item;
 }
 
+function normalizeAreaRow(area) {
+  return Object.fromEntries(
+    Object.entries(area || {}).map(([key, value]) => {
+      const numericValue = toNumber(value);
+      return [key, numericValue === null ? value : numericValue];
+    })
+  );
+}
+
 function loadAreas() {
   if (!fs.existsSync(DATA_PATH)) {
     throw new Error(`Data file not found: ${DATA_PATH}`);
@@ -143,6 +152,14 @@ function loadAreas() {
 }
 
 const areas = loadAreas();
+
+function getAreaSource(sourceAreas) {
+  if (!Array.isArray(sourceAreas)) {
+    return areas;
+  }
+
+  return sourceAreas.map(normalizeAreaRow);
+}
 
 function getTimeOption(input = "evening") {
   const value = String(input || "evening").trim();
@@ -206,6 +223,8 @@ function enrichArea(area, timeOption, targetAges) {
 
   return {
     raw: area,
+    areaFeatureId: area.__areaFeatureId || null,
+    districtId: area.__districtId || null,
     areaCode: String(area["행정동_코드"]),
     areaName: area["행정동_코드_명"],
     industry: area["업종명"] || DEFAULT_INDUSTRY,
@@ -443,6 +462,8 @@ function getStats(enrichedAreas) {
 function toRecommendation(area, rank, scored, timeOption, stats) {
   const item = {
     rank,
+    areaFeatureId: area.areaFeatureId,
+    districtId: area.districtId,
     areaCode: area.areaCode,
     areaName: area.areaName,
     score: scored.score,
@@ -488,7 +509,7 @@ function toRecommendation(area, rank, scored, timeOption, stats) {
   return item;
 }
 
-function getPreparedAreas({ time = "evening", targetAges, industry, useAdjustedScore } = {}) {
+function getPreparedAreas({ time = "evening", targetAges, industry, useAdjustedScore, __areas } = {}) {
   const timeOption = getTimeOption(time);
   if (!timeOption) {
     return null;
@@ -497,7 +518,8 @@ function getPreparedAreas({ time = "evening", targetAges, industry, useAdjustedS
   const ages = parseTargetAges(targetAges);
   const industryName = industry || DEFAULT_INDUSTRY;
   const adjustedScoreEnabled = String(useAdjustedScore).toLowerCase() === "true";
-  const filtered = areas.filter((area) => (area["업종명"] || DEFAULT_INDUSTRY) === industryName);
+  const sourceAreas = getAreaSource(__areas);
+  const filtered = sourceAreas.filter((area) => (area["업종명"] || DEFAULT_INDUSTRY) === industryName);
   const enriched = filtered.map((area) => enrichArea(area, timeOption, ages));
   const ranges = getRanges(enriched, adjustedScoreEnabled);
   const stats = getStats(enriched);

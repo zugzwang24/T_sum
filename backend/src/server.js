@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const { createApp } = require("./app");
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -24,4 +26,3 @@ app.listen(PORT, () => {
   console.log(`황금을 찾아라 API 서버 실행 중: http://localhost:${PORT}`);
   logAiConfig();
 });
-

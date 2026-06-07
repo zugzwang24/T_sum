@@ -1,14 +1,17 @@
 import { Link, useLocation } from "react-router";
 import { Coffee, Menu, X } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "../../auth/AuthContext";
 
 export default function Header() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const { isAuthenticated, isLoading, logout, user } = useAuth();
 
   const navLinks = [
     { name: "서비스 소개", path: "/" },
     { name: "추천받기", path: "/recommendations" },
+    { name: "저장함", path: "/saved" },
     { name: "상권 비교", path: "/compare" },
     { name: "분석 방법", path: "/#how-it-works" },
   ];
@@ -48,13 +51,36 @@ export default function Header() {
           </nav>
 
           {/* Desktop CTA */}
-          <div className="hidden md:flex items-center">
-            <Link
-              to="/recommendations"
-              className="bg-[#C99728] text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-[#b08423] transition-colors shadow-sm"
-            >
-              추천 시작하기
-            </Link>
+          <div className="hidden md:flex items-center gap-3">
+            {isAuthenticated ? (
+              <>
+                <span className="text-sm font-semibold text-[#173F35] max-w-40 truncate">
+                  {user?.name || user?.email}
+                </span>
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="border border-[#D9DED7] text-[#17211D] px-4 py-2 rounded-full text-sm font-semibold hover:bg-[#F7F6F1] transition-colors"
+                >
+                  로그아웃
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="text-[#173F35] px-4 py-2 rounded-full text-sm font-semibold hover:bg-[#F7F6F1] transition-colors"
+                >
+                  로그인
+                </Link>
+                <Link
+                  to="/register"
+                  className="bg-[#C99728] text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-[#b08423] transition-colors shadow-sm"
+                >
+                  회원가입
+                </Link>
+              </>
+            )}
           </div>
 
           {/* Mobile menu button */}
@@ -94,6 +120,37 @@ export default function Header() {
             >
               추천 시작하기
             </Link>
+            {!isLoading && (
+              isAuthenticated ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    logout();
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="block w-full text-center mt-2 border border-[#D9DED7] text-[#17211D] px-5 py-2 rounded-full text-sm font-semibold"
+                >
+                  로그아웃
+                </button>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <Link
+                    to="/login"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="block text-center border border-[#D9DED7] text-[#173F35] px-4 py-2 rounded-full text-sm font-semibold"
+                  >
+                    로그인
+                  </Link>
+                  <Link
+                    to="/register"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="block text-center bg-[#173F35] text-white px-4 py-2 rounded-full text-sm font-semibold"
+                  >
+                    회원가입
+                  </Link>
+                </div>
+              )
+            )}
           </div>
         </div>
       )}

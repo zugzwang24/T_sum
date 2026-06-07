@@ -6,29 +6,33 @@ import {
   CheckCircle2,
   RefreshCw,
   Sparkles,
+  Trash2,
   Trophy,
-  X,
 } from "lucide-react";
 
+import { useAuth } from "../auth/AuthContext";
 import {
-  buildQuery,
   compareAreas,
-  getRecommendations,
+  createComparison,
+  deleteComparisonItem,
+  getComparisons,
   type AreaDetail,
   type CompareResponse,
+  type Comparison,
   type TimeValue,
 } from "../lib/api";
 import { formatNumber, formatPercent, formatWon } from "../lib/format";
-import { readCompareCodes, writeCompareCodes } from "../lib/storage";
 
 const DEFAULT_TIME: TimeValue = "evening";
 const DEFAULT_AGES = ["20", "30"];
 
 export default function Compare() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [data, setData] = useState<CompareResponse | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [searchParams] = useSearchParams();
+  const { isAuthenticated, isLoading } = useAuth();
+  const [comparison, setComparison] = useState<Comparison | null>(null);
+  const [analysis, setAnalysis] = useState<CompareResponse | null>(null);
+  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
 
   const query = useMemo(() => {
@@ -38,92 +42,77 @@ export default function Compare() {
       .filter(Boolean);
 
     return {
-      areaA: searchParams.get("areaA") || undefined,
-      areaB: searchParams.get("areaB") || undefined,
       time: (searchParams.get("time") || DEFAULT_TIME) as TimeValue,
       targetAges: targetAges.length > 0 ? targetAges : DEFAULT_AGES,
       minQualityScore: Number(searchParams.get("minQualityScore") || 60),
-      useAdjustedScore: searchParams.get("useAdjustedScore") !== "false",
     };
   }, [searchParams]);
 
-  async function ensureCompareTargets() {
-    if (query.areaA && query.areaB) {
-      return { areaA: query.areaA, areaB: query.areaB };
+  async function loadComparison() {
+    if (!isAuthenticated) {
+      return;
     }
 
-    const stored = readCompareCodes();
-    if (stored.length >= 2) {
-      return { areaA: stored[0], areaB: stored[1] };
-    }
-
-    const recommendations = await getRecommendations({
-      time: query.time,
-      targetAges: query.targetAges,
-      useAdjustedScore: query.useAdjustedScore,
-      minQualityScore: query.minQualityScore,
-      limit: 2,
-    });
-
-    const [first, second] = recommendations.items;
-    if (!first || !second) {
-      throw new Error("비교할 상권이 부족합니다.");
-    }
-
-    return { areaA: first.areaCode, areaB: second.areaCode };
-  }
-
-  async function loadCompare() {
     setStatus("loading");
     setErrorMessage("");
 
     try {
-      const targets = await ensureCompareTargets();
-      writeCompareCodes([targets.areaA, targets.areaB]);
+      const result = await getComparisons();
+      let selected = result.items[0] || null;
 
-      const nextSearch = buildQuery({
-        areaA: targets.areaA,
-        areaB: targets.areaB,
-        time: query.time,
-        targetAges: query.targetAges,
-        minQualityScore: query.minQualityScore,
-        useAdjustedScore: query.useAdjustedScore,
-      });
-      if (searchParams.toString() !== nextSearch) {
-        setSearchParams(new URLSearchParams(nextSearch), { replace: true });
+      if (!selected) {
+        const created = await createComparison({ name: "내 비교함" });
+        selected = created.item;
       }
 
-      const result = await compareAreas({
-        ...targets,
-        time: query.time,
-        targetAges: query.targetAges,
-        minQualityScore: query.minQualityScore,
-      });
+      setComparison(selected);
 
-      setData(result);
+      if (selected.items.length >= 2) {
+        const [first, second] = selected.items;
+        const compareResult = await compareAreas({
+          areaA: first.areaCode,
+          areaB: second.areaCode,
+          time: query.time,
+          targetAges: query.targetAges,
+          minQualityScore: query.minQualityScore,
+        });
+        setAnalysis(compareResult);
+      } else {
+        setAnalysis(null);
+      }
+
       setStatus("ready");
     } catch (error) {
       setStatus("error");
-      setErrorMessage(error instanceof Error ? error.message : "상권 비교 정보를 불러오지 못했습니다.");
+      setErrorMessage(error instanceof Error ? error.message : "비교함 정보를 불러오지 못했습니다.");
+    }
+  }
+
+  async function removeItem(itemId: string) {
+    if (!comparison) {
+      return;
+    }
+
+    try {
+      await deleteComparisonItem(comparison.id, itemId);
+      await loadComparison();
+    } catch (error) {
+      setStatus("error");
+      setErrorMessage(error instanceof Error ? error.message : "비교 항목 삭제에 실패했습니다.");
     }
   }
 
   useEffect(() => {
-    loadCompare();
-  }, [query.areaA, query.areaB, query.time, query.targetAges.join(","), query.minQualityScore, query.useAdjustedScore]);
+    if (!isLoading && !isAuthenticated) {
+      navigate("/login");
+      return;
+    }
 
-  function removeArea(areaCode: string) {
-    const next = (data?.areas || []).filter((area) => area.areaCode !== areaCode).map((area) => area.areaCode);
-    writeCompareCodes(next);
-    const nextSearch = buildQuery({
-        areaA: next[0],
-        areaB: next[1],
-        time: query.time,
-        targetAges: query.targetAges,
-        minQualityScore: query.minQualityScore,
-        useAdjustedScore: query.useAdjustedScore,
-      });
-    setSearchParams(new URLSearchParams(nextSearch));
+    loadComparison();
+  }, [isAuthenticated, isLoading, query.time, query.targetAges.join(","), query.minQualityScore]);
+
+  if (!isAuthenticated && !isLoading) {
+    return null;
   }
 
   return (
@@ -133,65 +122,127 @@ export default function Compare() {
           onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-[#6B726D] hover:text-[#17211D] font-medium mb-6 transition-colors"
         >
-          <ArrowLeft className="w-5 h-5" /> 추천 목록으로 돌아가기
+          <ArrowLeft className="w-5 h-5" />
+          이전 화면으로 돌아가기
         </button>
 
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-[#173F35] mb-2">상권 비교</h1>
-          <p className="text-[#6B726D]">선택한 상권의 추천 점수와 핵심 지표를 백엔드 비교 API로 확인합니다.</p>
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-[#173F35] mb-2">내 비교함</h1>
+            <p className="text-[#6B726D]">
+              추천 카드에서 추가한 상권을 모아두고, 상위 2개 상권을 바로 비교합니다.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={loadComparison}
+            className="inline-flex items-center justify-center gap-2 bg-white border border-[#D9DED7] text-[#173F35] px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#F7F6F1]"
+          >
+            <RefreshCw className={`w-4 h-4 ${status === "loading" ? "animate-spin" : ""}`} />
+            새로고침
+          </button>
         </div>
 
         {status === "loading" && <LoadingCompare />}
-        {status === "error" && <ErrorPanel message={errorMessage} onRetry={loadCompare} />}
-        {status === "ready" && data && (
+        {status === "error" && <ErrorPanel message={errorMessage} onRetry={loadComparison} />}
+
+        {status === "ready" && comparison && (
           <>
-            <div className="flex flex-wrap gap-3 mb-8">
-              {data.areas.map((area) => (
-                <div key={area.areaCode} className="bg-white border border-[#D9DED7] pl-4 pr-2 py-2 rounded-full flex items-center gap-2 shadow-sm">
-                  <span className="font-bold text-[#17211D]">{area.areaName}</span>
-                  <button
-                    onClick={() => removeArea(area.areaCode)}
-                    className="p-1 hover:bg-gray-100 rounded-full text-[#6B726D]"
-                    aria-label={`${area.areaName} 비교 제거`}
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+            <section className="bg-white rounded-2xl border border-[#D9DED7] shadow-sm p-5 mb-8">
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <div>
+                  <h2 className="text-xl font-bold text-[#173F35]">{comparison.name}</h2>
+                  <p className="text-sm text-[#6B726D]">
+                    {comparison.items.length}개 상권이 담겨 있습니다.
+                  </p>
                 </div>
-              ))}
-              <Link
-                to={`/recommendations?${buildQuery({
-                  time: query.time,
-                  targetAges: query.targetAges,
-                  minQualityScore: query.minQualityScore,
-                  useAdjustedScore: query.useAdjustedScore,
-                })}`}
-                className="bg-[#F7F6F1] border border-dashed border-[#D9DED7] px-4 py-2 rounded-full text-[#6B726D] text-sm font-medium hover:bg-[#EAE8E1] transition-colors"
-              >
-                + 추천 목록에서 다시 선택
-              </Link>
-            </div>
-
-            <CompareTable areas={data.areas} />
-
-            <section className="bg-[#FFF3D8] rounded-2xl p-8 border border-[#E8D4A2] shadow-sm">
-              <h2 className="text-xl font-bold text-[#173F35] mb-4 flex items-center gap-2">
-                <Sparkles className="w-6 h-6 text-[#C99728]" /> 비교 요약
-              </h2>
-              <p className="text-sm text-[#17211D] leading-7 mb-5">{data.summary}</p>
-              <div className="grid md:grid-cols-2 gap-4">
-                {data.areas.map((area, index) => (
-                  <div key={area.areaCode} className="bg-white/60 p-4 rounded-xl">
-                    <h3 className="font-bold text-[#17211D] mb-2 flex items-center gap-2">
-                      {index === 0 ? <Trophy className="w-4 h-4 text-[#C99728]" /> : <CheckCircle2 className="w-4 h-4 text-[#2F7565]" />}
-                      {area.areaName}
-                    </h3>
-                    <p className="text-sm text-[#17211D]">
-                      신뢰도 {area.dataQuality.score}점, 타깃 매출비율 {formatPercent(area.metrics.targetSalesRatio)}, 선택 시간대 매출비중 {formatPercent(area.metrics.selectedTimeSalesRatio)}입니다.
-                    </p>
-                  </div>
-                ))}
+                <Link
+                  to="/recommendations"
+                  className="bg-[#173F35] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#0f2c25]"
+                >
+                  추천에서 추가
+                </Link>
               </div>
+
+              {comparison.items.length === 0 ? (
+                <div className="border border-dashed border-[#D9DED7] rounded-xl p-8 text-center">
+                  <p className="text-[#6B726D] mb-4">비교함에 담긴 상권이 없습니다.</p>
+                  <Link
+                    to="/recommendations"
+                    className="inline-flex bg-[#C99728] text-white px-5 py-3 rounded-xl text-sm font-bold hover:bg-[#b08423]"
+                  >
+                    추천 상권 보러가기
+                  </Link>
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-2 gap-3">
+                  {comparison.items.map((item, index) => (
+                    <div
+                      key={item.id}
+                      className="border border-[#D9DED7] rounded-xl p-4 flex items-start justify-between gap-3"
+                    >
+                      <div>
+                        <div className="text-xs font-bold text-[#C99728] mb-1">
+                          비교 후보 {index + 1}
+                        </div>
+                        <div className="font-bold text-[#17211D]">{item.areaName}</div>
+                        <div className="text-xs text-[#6B726D] mt-1">행정동 코드 {item.areaCode}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeItem(item.id)}
+                        className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-[#D9DED7] text-[#6B726D] hover:bg-red-50 hover:text-red-700"
+                        aria-label={`${item.areaName} 비교함에서 삭제`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
+
+            {comparison.items.length === 1 && (
+              <div className="bg-[#FFF3D8] rounded-2xl p-6 border border-[#E8D4A2] mb-8">
+                <div className="font-bold text-[#173F35] mb-2">비교하려면 상권이 하나 더 필요합니다.</div>
+                <p className="text-sm text-[#17211D]">
+                  추천 목록에서 다른 상권의 비교 추가 버튼을 눌러주세요.
+                </p>
+              </div>
+            )}
+
+            {analysis && (
+              <>
+                <CompareTable areas={analysis.areas} />
+
+                <section className="bg-[#FFF3D8] rounded-2xl p-8 border border-[#E8D4A2] shadow-sm">
+                  <h2 className="text-xl font-bold text-[#173F35] mb-4 flex items-center gap-2">
+                    <Sparkles className="w-6 h-6 text-[#C99728]" />
+                    비교 요약
+                  </h2>
+                  <p className="text-sm text-[#17211D] leading-7 mb-5">{analysis.summary}</p>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {analysis.areas.map((area, index) => (
+                      <div key={area.areaCode} className="bg-white/60 p-4 rounded-xl">
+                        <h3 className="font-bold text-[#17211D] mb-2 flex items-center gap-2">
+                          {index === 0 ? (
+                            <Trophy className="w-4 h-4 text-[#C99728]" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4 text-[#2F7565]" />
+                          )}
+                          {area.areaName}
+                        </h3>
+                        <p className="text-sm text-[#17211D]">
+                          신뢰도 {area.dataQuality.score}점, 타깃 매출비율{" "}
+                          {formatPercent(area.metrics.targetSalesRatio)}, 선택 시간대 매출비중{" "}
+                          {formatPercent(area.metrics.selectedTimeSalesRatio)}입니다.
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </>
+            )}
           </>
         )}
       </div>
@@ -268,13 +319,14 @@ function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void
       <div className="flex items-start gap-3">
         <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
         <div>
-          <div className="font-bold">상권 비교를 불러오지 못했습니다.</div>
+          <div className="font-bold">비교함을 불러오지 못했습니다.</div>
           <p className="text-sm mt-1">{message}</p>
           <button
             onClick={onRetry}
             className="mt-4 inline-flex items-center gap-2 bg-white border border-red-200 px-4 py-2 rounded-lg text-sm font-bold"
           >
-            <RefreshCw className="w-4 h-4" /> 다시 시도
+            <RefreshCw className="w-4 h-4" />
+            다시 시도
           </button>
         </div>
       </div>

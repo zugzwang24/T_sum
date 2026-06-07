@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import {
   AlertCircle,
   BarChart3,
+  BookmarkPlus,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -14,8 +15,13 @@ import {
 } from "lucide-react";
 
 import {
+  addComparisonItem,
   buildQuery,
+  createComparison,
+  getComparisons,
   getRecommendations,
+  getSavedAreas,
+  saveArea,
   type RecommendationItem,
   type RecommendationResponse,
   type TimeValue,
@@ -23,11 +29,14 @@ import {
 import { AGE_OPTIONS, TIME_OPTIONS, getTimeLabel } from "../lib/options";
 import { formatNumber, formatPercent, formatWon } from "../lib/format";
 import { readCompareCodes, writeCompareCodes } from "../lib/storage";
+import { useAuth } from "../auth/AuthContext";
 
 const DEFAULT_TIME: TimeValue = "evening";
 const DEFAULT_AGES = ["20", "30"];
 
 export default function Recommendations() {
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [selectedTime, setSelectedTime] = useState<TimeValue>(DEFAULT_TIME);
   const [selectedAges, setSelectedAges] = useState<string[]>(DEFAULT_AGES);
   const [useAdjustedScore, setUseAdjustedScore] = useState(true);
@@ -35,6 +44,10 @@ export default function Recommendations() {
   const [data, setData] = useState<RecommendationResponse | null>(null);
   const [selectedAreaCode, setSelectedAreaCode] = useState<string | null>(null);
   const [compareCodes, setCompareCodes] = useState<string[]>(() => readCompareCodes());
+  const [savedAreaFeatureIds, setSavedAreaFeatureIds] = useState<string[]>([]);
+  const [comparisonAreaFeatureIds, setComparisonAreaFeatureIds] = useState<string[]>([]);
+  const [actionMessage, setActionMessage] = useState("");
+  const [actionStatus, setActionStatus] = useState<"idle" | "success" | "error">("idle");
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -79,6 +92,99 @@ export default function Recommendations() {
     });
   }
 
+  function requireLogin() {
+    setActionStatus("error");
+    setActionMessage("로그인이 필요한 기능입니다.");
+    navigate("/login");
+  }
+
+  async function syncUserCollections() {
+    if (!isAuthenticated) {
+      setSavedAreaFeatureIds([]);
+      setComparisonAreaFeatureIds([]);
+      return;
+    }
+
+    try {
+      const [savedResult, comparisonResult] = await Promise.all([
+        getSavedAreas(),
+        getComparisons(),
+      ]);
+      setSavedAreaFeatureIds(
+        savedResult.items.map((item) => item.areaFeatureId).filter(Boolean)
+      );
+      setComparisonAreaFeatureIds(
+        comparisonResult.items
+          .flatMap((comparison) => comparison.items)
+          .map((item) => item.areaFeatureId)
+          .filter(Boolean)
+      );
+    } catch {
+      setActionStatus("error");
+      setActionMessage("저장함 정보를 불러오지 못했습니다.");
+    }
+  }
+
+  async function getOrCreateComparisonId() {
+    const comparisonResult = await getComparisons();
+    const existing = comparisonResult.items[0];
+    if (existing) {
+      return existing.id;
+    }
+
+    const created = await createComparison({ name: "내 비교함" });
+    return created.item.id;
+  }
+
+  async function handleSaveArea(item: RecommendationItem) {
+    if (!isAuthenticated) {
+      requireLogin();
+      return;
+    }
+
+    try {
+      const result = await saveArea({
+        areaFeatureId: item.areaFeatureId,
+        areaCode: item.areaCode,
+      });
+      setSavedAreaFeatureIds((current) =>
+        current.includes(result.item.areaFeatureId)
+          ? current
+          : [...current, result.item.areaFeatureId]
+      );
+      setActionStatus("success");
+      setActionMessage(`${item.areaName}을 저장했습니다.`);
+    } catch (error) {
+      setActionStatus("error");
+      setActionMessage(error instanceof Error ? error.message : "상권 저장에 실패했습니다.");
+    }
+  }
+
+  async function handleAddComparison(item: RecommendationItem) {
+    if (!isAuthenticated) {
+      requireLogin();
+      return;
+    }
+
+    try {
+      const comparisonId = await getOrCreateComparisonId();
+      const result = await addComparisonItem(comparisonId, {
+        areaFeatureId: item.areaFeatureId,
+        areaCode: item.areaCode,
+      });
+      setComparisonAreaFeatureIds(
+        result.item.items.map((comparisonItem) => comparisonItem.areaFeatureId)
+      );
+      writeCompareCodes(result.item.items.slice(0, 2).map((comparisonItem) => comparisonItem.areaCode));
+      setCompareCodes(result.item.items.slice(0, 2).map((comparisonItem) => comparisonItem.areaCode));
+      setActionStatus("success");
+      setActionMessage(`${item.areaName}을 비교함에 추가했습니다.`);
+    } catch (error) {
+      setActionStatus("error");
+      setActionMessage(error instanceof Error ? error.message : "비교함 추가에 실패했습니다.");
+    }
+  }
+
   async function loadRecommendations() {
     setStatus("loading");
     setErrorMessage("");
@@ -108,6 +214,10 @@ export default function Recommendations() {
   useEffect(() => {
     loadRecommendations();
   }, [selectedTime, selectedAges.join(","), useAdjustedScore, minQualityScore]);
+
+  useEffect(() => {
+    syncUserCollections();
+  }, [isAuthenticated]);
 
   return (
     <div className="flex-grow bg-[#F7F6F1] py-8">
@@ -206,6 +316,18 @@ export default function Recommendations() {
           </div>
         </section>
 
+        {actionMessage && (
+          <div
+            className={`mb-6 rounded-xl border px-4 py-3 text-sm font-semibold ${
+              actionStatus === "success"
+                ? "border-green-200 bg-green-50 text-green-700"
+                : "border-red-200 bg-red-50 text-red-700"
+            }`}
+          >
+            {actionMessage}
+          </div>
+        )}
+
         {status === "error" && (
           <div className="mb-8 bg-red-50 border border-red-200 text-red-700 rounded-2xl p-5 flex items-start gap-3">
             <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
@@ -226,10 +348,15 @@ export default function Recommendations() {
                   key={item.areaCode}
                   item={item}
                   selected={selectedArea?.areaCode === item.areaCode}
-                  checked={compareCodes.includes(item.areaCode)}
+                  saved={Boolean(item.areaFeatureId && savedAreaFeatureIds.includes(item.areaFeatureId))}
+                  checked={
+                    compareCodes.includes(item.areaCode) ||
+                    Boolean(item.areaFeatureId && comparisonAreaFeatureIds.includes(item.areaFeatureId))
+                  }
                   detailQuery={filterQuery}
                   onSelect={() => setSelectedAreaCode(item.areaCode)}
-                  onToggleCompare={() => toggleCompare(item.areaCode)}
+                  onSave={() => handleSaveArea(item)}
+                  onToggleCompare={() => handleAddComparison(item)}
                 />
               ))}
           </div>
@@ -246,16 +373,20 @@ export default function Recommendations() {
 function RecommendationCard({
   item,
   selected,
+  saved,
   checked,
   detailQuery,
   onSelect,
+  onSave,
   onToggleCompare,
 }: {
   item: RecommendationItem;
   selected: boolean;
+  saved: boolean;
   checked: boolean;
   detailQuery: string;
   onSelect: () => void;
+  onSave: () => void;
   onToggleCompare: () => void;
 }) {
   return (
@@ -304,7 +435,21 @@ function RecommendationCard({
         <p>{item.reasons?.[0] || item.strategyGuide || "선택 조건 기준으로 추천 점수를 계산했습니다."}</p>
       </div>
 
-      <div className="flex gap-2 justify-end">
+      <div className="flex flex-wrap gap-2 justify-end">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onSave();
+          }}
+          className={`text-sm px-4 py-2 border rounded-lg font-medium flex items-center gap-1.5 transition-colors ${
+            saved
+              ? "border-[#2F7565] bg-[#E8F3EF] text-[#173F35]"
+              : "border-[#D9DED7] text-[#17211D] hover:bg-gray-50"
+          }`}
+        >
+          <BookmarkPlus className="w-4 h-4" /> {saved ? "저장됨" : "저장"}
+        </button>
         <button
           type="button"
           onClick={(event) => {
@@ -317,7 +462,7 @@ function RecommendationCard({
               : "border-[#D9DED7] text-[#17211D] hover:bg-gray-50"
           }`}
         >
-          <Plus className="w-4 h-4" /> {checked ? "비교 선택됨" : "비교 추가"}
+          <Plus className="w-4 h-4" /> {checked ? "비교함 추가됨" : "비교 추가"}
         </button>
         <Link
           to={`/detail/${item.areaCode}?${detailQuery}`}

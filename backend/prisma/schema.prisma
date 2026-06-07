@@ -1,0 +1,174 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  recommendationRuns RecommendationRun[]
+  savedAreas   SavedArea[]
+  comparisons  Comparison[]
+
+  @@map("users")
+}
+
+model District {
+  id           String        @id @default(uuid())
+  code         String        @unique
+  name         String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  areaFeatures AreaFeature[]
+
+  @@map("districts")
+}
+
+model BusinessCategory {
+  id           String        @id @default(uuid())
+  code         String        @unique
+  name         String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  areaFeatures AreaFeature[]
+
+  @@map("business_categories")
+}
+
+model Dataset {
+  id           String        @id @default(uuid())
+  code         String        @unique
+  name         String
+  description  String?
+  sourcePath   String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  areaFeatures AreaFeature[]
+
+  @@map("datasets")
+}
+
+model AreaFeature {
+  id                            String           @id @default(uuid())
+  districtId                    String
+  businessCategoryId            String
+  datasetId                     String
+  monthlySalesAmount            Float?
+  monthlySalesCount             Float?
+  totalSalesCount               Float?
+  targetSalesCount              Float?
+  peakTimeSalesRatio            Float?
+  recommendedTimeBand           String?
+  quarterlySalesStability       Float?
+  targetSalesRatio              Float?
+  averageTicket                 Float?
+  dawnSalesRatio                Float?
+  morningSalesRatio             Float?
+  lunchSalesRatio               Float?
+  afternoonSalesRatio           Float?
+  eveningSalesRatio             Float?
+  nightSalesRatio               Float?
+  totalFootTraffic              Float?
+  targetFootTraffic             Float?
+  targetFootTrafficRatio        Float?
+  estimatedMonthlyFootTraffic   Float?
+  cafeConversionRate            Float?
+  targetCafeConversionRate      Float?
+  rawFeatures                   Json
+  createdAt                     DateTime         @default(now())
+  updatedAt                     DateTime         @updatedAt
+  district                      District         @relation(fields: [districtId], references: [id])
+  businessCategory              BusinessCategory @relation(fields: [businessCategoryId], references: [id])
+  dataset                       Dataset          @relation(fields: [datasetId], references: [id])
+  recommendationResults         RecommendationResult[]
+  savedAreas                    SavedArea[]
+  comparisonItems               ComparisonItem[]
+
+  @@unique([datasetId, businessCategoryId, districtId], name: "area_feature_identity")
+  @@index([districtId])
+  @@index([businessCategoryId])
+  @@index([datasetId])
+  @@map("area_features")
+}
+
+model RecommendationRun {
+  id          String                 @id @default(uuid())
+  userId      String
+  query       Json
+  criteria    Json?
+  resultCount Int                    @default(0)
+  createdAt   DateTime               @default(now())
+  user        User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  results     RecommendationResult[]
+
+  @@index([userId])
+  @@map("recommendation_runs")
+}
+
+model RecommendationResult {
+  id                  String            @id @default(uuid())
+  recommendationRunId String
+  areaFeatureId       String
+  rank                Int
+  score               Float?
+  baseScore           Float?
+  recommendationTier  String?
+  data                Json
+  createdAt           DateTime          @default(now())
+  recommendationRun   RecommendationRun @relation(fields: [recommendationRunId], references: [id], onDelete: Cascade)
+  areaFeature         AreaFeature       @relation(fields: [areaFeatureId], references: [id], onDelete: Cascade)
+
+  @@index([recommendationRunId])
+  @@index([areaFeatureId])
+  @@map("recommendation_results")
+}
+
+model SavedArea {
+  id            String      @id @default(uuid())
+  userId        String
+  areaFeatureId String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  areaFeature   AreaFeature @relation(fields: [areaFeatureId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, areaFeatureId], name: "saved_area_identity")
+  @@index([userId])
+  @@index([areaFeatureId])
+  @@map("saved_areas")
+}
+
+model Comparison {
+  id        String           @id @default(uuid())
+  userId    String
+  name      String           @default("내 비교함")
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     ComparisonItem[]
+
+  @@index([userId])
+  @@map("comparisons")
+}
+
+model ComparisonItem {
+  id            String      @id @default(uuid())
+  comparisonId  String
+  areaFeatureId String
+  createdAt     DateTime    @default(now())
+  comparison    Comparison  @relation(fields: [comparisonId], references: [id], onDelete: Cascade)
+  areaFeature   AreaFeature @relation(fields: [areaFeatureId], references: [id], onDelete: Cascade)
+
+  @@unique([comparisonId, areaFeatureId], name: "comparison_item_identity")
+  @@index([comparisonId])
+  @@index([areaFeatureId])
+  @@map("comparison_items")
+}
