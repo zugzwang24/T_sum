@@ -199,6 +199,16 @@ function sumColumns(area, columns) {
   }, 0);
 }
 
+function firstMetricValue(area, columns) {
+  for (const column of columns) {
+    const value = area[column];
+    if (typeof value === "number") {
+      return value;
+    }
+  }
+  return null;
+}
+
 function getTargetSalesCount(area, targetAges) {
   return sumColumns(
     area,
@@ -225,6 +235,7 @@ function enrichArea(area, timeOption, targetAges) {
     raw: area,
     areaFeatureId: area.__areaFeatureId || null,
     districtId: area.__districtId || null,
+    category: area.__category || null,
     areaCode: String(area["행정동_코드"]),
     areaName: area["행정동_코드_명"],
     industry: area["업종명"] || DEFAULT_INDUSTRY,
@@ -237,7 +248,7 @@ function enrichArea(area, timeOption, targetAges) {
     targetPopulation,
     targetPopulationRatio: safeDivide(targetPopulation, totalPopulation),
     monthlyEstimatedPopulation: area["월_유동인구추정"],
-    conversionRate: area["카페전환효율"],
+    conversionRate: firstMetricValue(area, ["업종전환효율", "카페전환효율"]),
     targetConversionRate: safeDivide(targetSalesCount, targetPopulation * WEEKS_PER_MONTH),
     salesPeriodCount: area["집계_기간수"],
     salesStability:
@@ -347,10 +358,10 @@ function buildDataQuality(area, stats) {
     warnings.push("분기별 매출 변동이 큰 편이라 특정 기간의 이벤트나 계절성 영향을 확인해야 합니다.");
   }
   if (isHighConversionOutlier) {
-    warnings.push("카페전환효율이 상위 1% 수준으로 높아 이상치 가능성이 있습니다.");
+    warnings.push("업종전환효율이 상위 1% 수준으로 높아 이상치 가능성이 있습니다.");
   }
   if (isLowConversionOutlier) {
-    warnings.push("카페전환효율이 하위 1% 수준으로 낮아 데이터 누락 또는 특수 상권 여부를 확인해야 합니다.");
+    warnings.push("업종전환효율이 하위 1% 수준으로 낮아 데이터 누락 또는 특수 상권 여부를 확인해야 합니다.");
   }
   if (
     area.selectedTimeSalesRatio - area.selectedTimePopulationRatio > 0.15 &&
@@ -417,6 +428,7 @@ function scoreArea(area, ranges, stats) {
     dataQuality,
     scoreBreakdown: {
       cafeConversionRate: round(conversionScore * SCORE_WEIGHTS.conversionRate * 100, 1),
+      categoryConversionRate: round(conversionScore * SCORE_WEIGHTS.conversionRate * 100, 1),
       mzSalesRatio: round(targetSalesScore * SCORE_WEIGHTS.targetSalesRatio * 100, 1),
       targetPopulationVolume: round(targetPopulationScore * SCORE_WEIGHTS.targetPopulation * 100, 1),
       selectedTimeSalesRatio: round(timeScore * SCORE_WEIGHTS.selectedTimeSalesRatio * 100, 1),
@@ -464,6 +476,7 @@ function toRecommendation(area, rank, scored, timeOption, stats) {
     rank,
     areaFeatureId: area.areaFeatureId,
     districtId: area.districtId,
+    category: area.category,
     areaCode: area.areaCode,
     areaName: area.areaName,
     score: scored.score,
@@ -475,6 +488,7 @@ function toRecommendation(area, rank, scored, timeOption, stats) {
       targetPopulation: round(area.targetPopulation, 0),
       targetPopulationRatio: round(area.targetPopulationRatio),
       conversionRate: round(area.conversionRate),
+      categoryConversionRate: round(area.conversionRate),
       salesStability: round(area.salesStability),
       selectedTimeSalesRatio: round(area.selectedTimeSalesRatio),
       selectedTimePopulationRatio: round(area.selectedTimePopulationRatio),
@@ -490,7 +504,7 @@ function toRecommendation(area, rank, scored, timeOption, stats) {
     },
     scoreBreakdown: scored.scoreBreakdown,
     cautions: scored.dataQuality.warnings,
-    strategyGuide: getStrategyGuide(timeOption),
+    strategyGuide: getStrategyGuide(timeOption, area.category),
   };
 
   item.reasons = buildRuleBasedReasons(
@@ -503,13 +517,14 @@ function toRecommendation(area, rank, scored, timeOption, stats) {
     },
     { selectedTimeSalesRatio: area.selectedTimeSalesRatio },
     timeOption,
-    stats
+    stats,
+    area.category
   );
 
   return item;
 }
 
-function getPreparedAreas({ time = "evening", targetAges, industry, useAdjustedScore, __areas } = {}) {
+function getPreparedAreas({ time = "evening", targetAges, industry, useAdjustedScore, __areas, __category } = {}) {
   const timeOption = getTimeOption(time);
   if (!timeOption) {
     return null;
@@ -524,7 +539,16 @@ function getPreparedAreas({ time = "evening", targetAges, industry, useAdjustedS
   const ranges = getRanges(enriched, adjustedScoreEnabled);
   const stats = getStats(enriched);
 
-  return { timeOption, targetAges: ages, industryName, enriched, ranges, stats, useAdjustedScore: adjustedScoreEnabled };
+  return {
+    timeOption,
+    targetAges: ages,
+    industryName,
+    category: __category || null,
+    enriched,
+    ranges,
+    stats,
+    useAdjustedScore: adjustedScoreEnabled,
+  };
 }
 
 function getRecommendations(query = {}) {
@@ -561,6 +585,7 @@ function getRecommendations(query = {}) {
   return {
     criteria: {
       industry: prepared.industryName,
+      category: prepared.category,
       target: `${prepared.targetAges.join(",")}대`,
       targetAges: prepared.targetAges,
       selectedTime: prepared.timeOption.value,
@@ -574,6 +599,7 @@ function getRecommendations(query = {}) {
         : `신뢰도 ${minQualityScore}점 이상 우선 정렬`,
       reviewCandidateCount: scoredItems.filter((item) => item.reviewRequired).length,
     },
+    category: prepared.category,
     items,
   };
 }
@@ -663,6 +689,9 @@ function getAreaDetail(areaCode, query = {}) {
   const reviewRequired = recommendation.dataQuality.score < minQualityScore;
 
   return {
+    areaFeatureId: area.areaFeatureId,
+    districtId: area.districtId,
+    category: prepared.category,
     areaCode: area.areaCode,
     areaName: area.areaName,
     score: recommendation.score,
@@ -681,6 +710,7 @@ function getAreaDetail(areaCode, query = {}) {
       targetSalesRatio: round(area.targetSalesRatio),
       targetPopulationRatio: round(area.targetPopulationRatio),
       conversionRate: round(area.conversionRate),
+      categoryConversionRate: round(area.conversionRate),
       targetConversionRate: round(area.targetConversionRate),
       selectedTimeSalesRatio: round(area.selectedTimeSalesRatio),
       selectedTimePopulationRatio: round(area.selectedTimePopulationRatio),
@@ -717,6 +747,7 @@ async function getAreaDetailWithAi(areaCode, time = "evening", ai = "false", ext
   const item = {
     areaCode: detail.areaCode,
     areaName: detail.areaName,
+    category: detail.category,
     score: detail.score,
     dataQuality: detail.dataQuality,
     reviewRequired: detail.reviewRequired,
@@ -745,7 +776,7 @@ function compareAreas(areaA, areaB, query = {}) {
   const winner = first.score >= second.score ? first : second;
   const strongerMetric =
     first.metrics.conversionRate >= second.metrics.conversionRate
-      ? "카페전환효율"
+      ? "업종전환효율"
       : "타깃 매출비율";
 
   return {
@@ -753,9 +784,11 @@ function compareAreas(areaA, areaB, query = {}) {
       selectedTime: timeOption.value,
       timeLabel: timeOption.label,
       timeRange: timeOption.range,
+      category: first.category || second.category || query.__category || null,
       targetAges: parseTargetAges(query.targetAges),
       minQualityScore: parseMinQualityScore(query.minQualityScore),
     },
+    category: first.category || second.category || query.__category || null,
     areas: [first, second],
     summary: `${timeOption.label} 기준으로는 ${winner.areaName}의 추천점수가 더 높습니다. 주요 차이는 ${strongerMetric}과 선택 시간대 매출비중에서 발생합니다.`,
   };

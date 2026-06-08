@@ -14,9 +14,11 @@ import { useAuth } from "../auth/AuthContext";
 import {
   compareAreas,
   createComparison,
+  DEFAULT_CATEGORY_CODE,
   deleteComparisonItem,
   getComparisons,
   type AreaDetail,
+  type BusinessCategory,
   type CompareResponse,
   type Comparison,
   type TimeValue,
@@ -26,6 +28,20 @@ import { formatNumber, formatPercent, formatWon } from "../lib/format";
 const DEFAULT_TIME: TimeValue = "evening";
 const DEFAULT_AGES = ["20", "30"];
 
+function getItemCategory(item: { businessCategory?: BusinessCategory | null; category?: BusinessCategory | null }) {
+  return item.businessCategory || item.category || null;
+}
+
+function getUniqueCategoryCodes(comparison: Comparison) {
+  return Array.from(
+    new Set(
+      comparison.items
+        .map((item) => getItemCategory(item)?.code)
+        .filter((code): code is string => Boolean(code))
+    )
+  );
+}
+
 export default function Compare() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -34,6 +50,7 @@ export default function Compare() {
   const [analysis, setAnalysis] = useState<CompareResponse | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
+  const [categoryNotice, setCategoryNotice] = useState("");
 
   const query = useMemo(() => {
     const targetAges = (searchParams.get("targetAges") || DEFAULT_AGES.join(","))
@@ -42,11 +59,17 @@ export default function Compare() {
       .filter(Boolean);
 
     return {
+      category: searchParams.get("category") || null,
       time: (searchParams.get("time") || DEFAULT_TIME) as TimeValue,
       targetAges: targetAges.length > 0 ? targetAges : DEFAULT_AGES,
       minQualityScore: Number(searchParams.get("minQualityScore") || 60),
     };
   }, [searchParams]);
+
+  const comparisonCategory = useMemo(
+    () => (comparison ? comparison.items.map(getItemCategory).find(Boolean) || null : null),
+    [comparison]
+  );
 
   async function loadComparison() {
     if (!isAuthenticated) {
@@ -55,6 +78,7 @@ export default function Compare() {
 
     setStatus("loading");
     setErrorMessage("");
+    setCategoryNotice("");
 
     try {
       const result = await getComparisons();
@@ -69,7 +93,18 @@ export default function Compare() {
 
       if (selected.items.length >= 2) {
         const [first, second] = selected.items;
+        const itemCategoryCodes = getUniqueCategoryCodes(selected);
+
+        if (itemCategoryCodes.length > 1) {
+          setAnalysis(null);
+          setCategoryNotice("서로 다른 업종이 비교함에 함께 담겨 있습니다. 같은 업종끼리만 비교할 수 있도록 항목을 정리해주세요.");
+          setStatus("ready");
+          return;
+        }
+
+        const category = itemCategoryCodes[0] || query.category || DEFAULT_CATEGORY_CODE;
         const compareResult = await compareAreas({
+          category,
           areaA: first.areaCode,
           areaB: second.areaCode,
           time: query.time,
@@ -109,7 +144,7 @@ export default function Compare() {
     }
 
     loadComparison();
-  }, [isAuthenticated, isLoading, query.time, query.targetAges.join(","), query.minQualityScore]);
+  }, [isAuthenticated, isLoading, query.category, query.time, query.targetAges.join(","), query.minQualityScore]);
 
   if (!isAuthenticated && !isLoading) {
     return null;
@@ -157,7 +192,9 @@ export default function Compare() {
                   </p>
                 </div>
                 <Link
-                  to="/recommendations"
+                  to={`/recommendations?category=${encodeURIComponent(
+                    comparisonCategory?.code || query.category || DEFAULT_CATEGORY_CODE
+                  )}`}
                   className="bg-[#173F35] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#0f2c25]"
                 >
                   추천에서 추가
@@ -168,7 +205,9 @@ export default function Compare() {
                 <div className="border border-dashed border-[#D9DED7] rounded-xl p-8 text-center">
                   <p className="text-[#6B726D] mb-4">비교함에 담긴 상권이 없습니다.</p>
                   <Link
-                    to="/recommendations"
+                    to={`/recommendations?category=${encodeURIComponent(
+                      comparisonCategory?.code || query.category || DEFAULT_CATEGORY_CODE
+                    )}`}
                     className="inline-flex bg-[#C99728] text-white px-5 py-3 rounded-xl text-sm font-bold hover:bg-[#b08423]"
                   >
                     추천 상권 보러가기
@@ -176,31 +215,49 @@ export default function Compare() {
                 </div>
               ) : (
                 <div className="grid md:grid-cols-2 gap-3">
-                  {comparison.items.map((item, index) => (
-                    <div
-                      key={item.id}
-                      className="border border-[#D9DED7] rounded-xl p-4 flex items-start justify-between gap-3"
-                    >
-                      <div>
-                        <div className="text-xs font-bold text-[#C99728] mb-1">
-                          비교 후보 {index + 1}
-                        </div>
-                        <div className="font-bold text-[#17211D]">{item.areaName}</div>
-                        <div className="text-xs text-[#6B726D] mt-1">행정동 코드 {item.areaCode}</div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeItem(item.id)}
-                        className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-[#D9DED7] text-[#6B726D] hover:bg-red-50 hover:text-red-700"
-                        aria-label={`${item.areaName} 비교함에서 삭제`}
+                  {comparison.items.map((item, index) => {
+                    const category = getItemCategory(item);
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="border border-[#D9DED7] rounded-xl p-4 flex items-start justify-between gap-3"
                       >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <span className="text-xs font-bold text-[#C99728]">
+                              비교 후보 {index + 1}
+                            </span>
+                            {category && (
+                              <span className="text-xs font-bold text-[#173F35] bg-[#E8F3EF] px-2 py-0.5 rounded-full">
+                                {category.label}
+                              </span>
+                            )}
+                          </div>
+                          <div className="font-bold text-[#17211D]">{item.areaName}</div>
+                          <div className="text-xs text-[#6B726D] mt-1">행정동 코드 {item.areaCode}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeItem(item.id)}
+                          className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-[#D9DED7] text-[#6B726D] hover:bg-red-50 hover:text-red-700"
+                          aria-label={`${item.areaName} 비교함에서 삭제`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </section>
+
+            {categoryNotice && (
+              <div className="bg-[#FFF3D8] rounded-2xl p-6 border border-[#E8D4A2] mb-8">
+                <div className="font-bold text-[#173F35] mb-2">업종을 맞춰서 비교해주세요.</div>
+                <p className="text-sm text-[#17211D]">{categoryNotice}</p>
+              </div>
+            )}
 
             {comparison.items.length === 1 && (
               <div className="bg-[#FFF3D8] rounded-2xl p-6 border border-[#E8D4A2] mb-8">
@@ -251,13 +308,21 @@ export default function Compare() {
 }
 
 function CompareTable({ areas }: { areas: AreaDetail[] }) {
+  const categoryLabel = areas[0]?.category?.label || "업종";
   const rows = [
     { label: "추천 점수", render: (area: AreaDetail) => `${area.score.toFixed(1)}점`, strong: true },
     { label: "데이터 신뢰도", render: (area: AreaDetail) => `${area.dataQuality.score}점 (${area.dataQuality.grade})` },
     { label: "타깃 매출비율", render: (area: AreaDetail) => formatPercent(area.metrics.targetSalesRatio) },
     { label: "타깃 유동인구", render: (area: AreaDetail) => formatNumber(area.metrics.targetPopulation) },
     { label: "타깃 유동인구비율", render: (area: AreaDetail) => formatPercent(area.metrics.targetPopulationRatio) },
-    { label: "카페전환효율", render: (area: AreaDetail) => formatPercent(area.metrics.cafeConversionRate ?? area.metrics.conversionRate, 2) },
+    {
+      label: `${categoryLabel} 전환효율`,
+      render: (area: AreaDetail) =>
+        formatPercent(
+          area.metrics.categoryConversionRate ?? area.metrics.conversionRate ?? area.metrics.cafeConversionRate,
+          2
+        ),
+    },
     { label: "선택시간 매출비중", render: (area: AreaDetail) => formatPercent(area.metrics.selectedTimeSalesRatio) },
     { label: "객단가", render: (area: AreaDetail) => formatWon(area.metrics.averageOrderValue ?? area.metrics.averagePrice) },
     { label: "매출 안정성", render: (area: AreaDetail) => formatPercent(area.metrics.salesStability) },
@@ -274,6 +339,11 @@ function CompareTable({ areas }: { areas: AreaDetail[] }) {
                 <th key={area.areaCode} className="px-6 py-4 border-l border-[#D9DED7]">
                   <div className="flex flex-col items-center">
                     <span className="text-lg font-bold text-[#17211D]">{area.areaName}</span>
+                    {area.category && (
+                      <span className="text-xs font-bold text-[#173F35] bg-[#E8F3EF] px-2 py-0.5 rounded-full mt-1">
+                        {area.category.label}
+                      </span>
+                    )}
                     <span className="text-xs text-[#6B726D]">행정동 {area.areaCode}</span>
                   </div>
                 </th>

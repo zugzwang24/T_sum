@@ -6,8 +6,10 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5-nano";
 const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS || 60000);
 let hasLoggedOpenAiResponse = false;
 
-function getStrategyGuide(timeOption) {
-  const guides = {
+function getStrategyGuide(timeOption, category) {
+  const categoryText = getCategoryDisplay(category);
+  const isCafe = categoryText.businessTerm === "카페";
+  const cafeGuides = {
     dawn: "새벽 시간대는 간단한 메뉴, 포장 동선, 안전한 매장 이미지가 중요합니다.",
     morning: "오전형 상권은 출근길 테이크아웃, 빠른 제조, 커피 세트 운영이 유리합니다.",
     lunch: "점심형 상권은 식후 음료, 가벼운 디저트, 짧은 체류 회전 전략이 잘 맞습니다.",
@@ -15,24 +17,96 @@ function getStrategyGuide(timeOption) {
     evening: "저녁형 상권은 데이트, 모임, 디저트, 프리미엄 음료 구성을 강조하기 좋습니다.",
     night: "심야형 상권은 제한 메뉴와 효율적인 인력 운영으로 집중 수요에 대응하는 전략이 필요합니다.",
   };
-  return guides[timeOption.value];
+  const genericGuides = {
+    dawn: `${categoryText.businessTerm} 새벽 수요는 빠른 결제, 포장 동선, 안정적인 운영 인력이 중요합니다.`,
+    morning: `${categoryText.businessTerm} 오전형 상권은 출근·등교 동선과 빠른 제공 속도에 맞춘 운영이 유리합니다.`,
+    lunch: `${categoryText.businessTerm} 점심형 상권은 피크 시간 회전율, 대표 메뉴 집중, 대기 동선 관리가 중요합니다.`,
+    afternoon: `${categoryText.businessTerm} 오후형 상권은 간식·휴식 수요와 재방문을 유도할 메뉴 구성이 잘 맞습니다.`,
+    evening: `${categoryText.businessTerm} 저녁형 상권은 모임, 퇴근 후 식사, 포장·배달 수요를 함께 고려하는 전략이 좋습니다.`,
+    night: `${categoryText.businessTerm} 심야형 상권은 제한 메뉴, 포장·배달 대응, 효율적인 인력 운영이 필요합니다.`,
+  };
+
+  return (isCafe ? cafeGuides : genericGuides)[timeOption.value];
 }
 
-function buildRuleBasedReasons(area, scored, timeOption, stats) {
+function getCategoryDisplay(category) {
+  if (!category) {
+    return {
+      label: "업종",
+      name: "업종",
+      businessTerm: "업종 매장",
+      conversionLabel: "업종전환효율",
+    };
+  }
+
+  const label = category.label || category.name || "업종";
+  const name = category.name || label;
+  const compactName = name.replace(/\s+/g, "");
+
+  if (
+    category.code === "COFFEE_BEVERAGE" ||
+    category.code === "CS100010" ||
+    label === "커피-음료" ||
+    compactName === "커피-음료"
+  ) {
+    return {
+      label: "커피-음료",
+      name: "커피-음료",
+      businessTerm: "카페",
+      conversionLabel: "카페전환효율",
+    };
+  }
+
+  const termByLabel = {
+    한식: "한식 음식점",
+    중식: "중식 음식점",
+    일식: "일식 음식점",
+    양식: "양식 음식점",
+    분식: "분식 전문점",
+    치킨: "치킨 전문점",
+    패스트푸드: "패스트푸드점",
+    제과점: "제과점",
+    편의점: "편의점",
+  };
+  const businessTerm =
+    termByLabel[label] ||
+    compactName
+      .replace("한식음식점", "한식 음식점")
+      .replace("중식음식점", "중식 음식점")
+      .replace("일식음식점", "일식 음식점")
+      .replace("양식음식점", "양식 음식점")
+      .replace("분식전문점", "분식 전문점")
+      .replace("치킨전문점", "치킨 전문점") ||
+    label;
+
+  return {
+    label,
+    name,
+    businessTerm,
+    conversionLabel: `${businessTerm} 전환효율`,
+  };
+}
+
+function buildRuleBasedReasons(area, scored, timeOption, stats, category) {
   const reasons = [];
+  const categoryText = getCategoryDisplay(category);
 
   if (area.cafeConversionRate >= stats.highCafeConversionRate) {
-    reasons.push("유동인구 대비 카페 구매 전환효율이 높아 실제 카페 소비가 활발한 지역입니다.");
+    reasons.push(
+      `유동인구 대비 ${categoryText.businessTerm} 구매 전환효율이 높아 실제 ${categoryText.businessTerm} 소비가 활발한 지역입니다.`
+    );
   }
 
   if (area.mzSalesRatio >= stats.avgMzSalesRatio) {
-    reasons.push("선택한 타깃 연령대의 매출비율이 높아 해당 고객층을 겨냥한 카페에 적합합니다.");
+    reasons.push(
+      `선택한 타깃 연령대의 매출비율이 높아 해당 고객층을 겨냥한 ${categoryText.businessTerm}에 적합합니다.`
+    );
   }
 
   if (scored.selectedTimeSalesRatio >= area.peakTimeSalesRatio * 0.9) {
     reasons.push(`선택한 ${timeOption.label} 시간대가 이 지역의 피크 매출 시간대와 가깝습니다.`);
   } else if (scored.selectedTimeSalesRatio >= 0.18) {
-    reasons.push(`선택한 ${timeOption.label} 시간대의 카페 매출비중이 높아 해당 시간대 운영에 유리합니다.`);
+    reasons.push(`선택한 ${timeOption.label} 시간대의 ${categoryText.businessTerm} 매출비중이 높아 해당 시간대 운영에 유리합니다.`);
   }
 
   if (area.averageOrderValue >= stats.avgAverageOrderValue) {
@@ -52,32 +126,42 @@ function buildRuleBasedReasons(area, scored, timeOption, stats) {
 
 function buildFallbackAiReason(item, timeOption) {
   const targetSalesRatio = item.metrics.targetSalesRatio ?? item.metrics.mzSalesRatio;
-  const conversionRate = item.metrics.conversionRate ?? item.metrics.cafeConversionRate;
+  const conversionRate =
+    item.metrics.categoryConversionRate ?? item.metrics.conversionRate ?? item.metrics.cafeConversionRate;
   const averagePrice = item.metrics.averagePrice ?? item.metrics.averageOrderValue;
+  const categoryText = getCategoryDisplay(item.category);
   const cautionText =
     item.cautions && item.cautions.length > 0
       ? ` 데이터 해석 시 ${item.cautions[0]}`
       : "";
 
-  return `${item.areaName}은 ${timeOption.label} 시간대 기준 추천점수 ${item.score}점을 기록했습니다. 타깃 매출비율은 ${(targetSalesRatio * 100).toFixed(1)}%, 카페전환효율은 ${(conversionRate * 100).toFixed(2)}%, 선택 시간대 매출비중은 ${(item.metrics.selectedTimeSalesRatio * 100).toFixed(1)}%, 객단가는 ${averagePrice}원입니다. ${item.reasons.join(" ")}${cautionText} ${item.strategyGuide}`;
+  return `${item.areaName}은 ${categoryText.businessTerm} 기준으로 ${timeOption.label} 시간대 추천점수 ${item.score}점을 기록했습니다. 타깃 매출비율은 ${(targetSalesRatio * 100).toFixed(1)}%, ${categoryText.conversionLabel}은 ${(conversionRate * 100).toFixed(2)}%, 선택 시간대 매출비중은 ${(item.metrics.selectedTimeSalesRatio * 100).toFixed(1)}%, 객단가는 ${averagePrice}원입니다. ${item.reasons.join(" ")}${cautionText} ${item.strategyGuide}`;
 }
 
 function buildPrompt(item, timeOption) {
   const targetSalesRatio = item.metrics.targetSalesRatio ?? item.metrics.mzSalesRatio;
-  const conversionRate = item.metrics.conversionRate ?? item.metrics.cafeConversionRate;
+  const conversionRate =
+    item.metrics.categoryConversionRate ?? item.metrics.conversionRate ?? item.metrics.cafeConversionRate;
   const averagePrice = item.metrics.averagePrice ?? item.metrics.averageOrderValue;
+  const categoryText = getCategoryDisplay(item.category);
 
   return [
-    "너는 카페 창업 상권 분석가다.",
+    `너는 ${categoryText.businessTerm} 창업 상권 분석가다.`,
     "추천 순위와 수치는 절대 바꾸지 말고, 제공된 지표만 근거로 한국어 설명을 작성해라.",
+    `선택 업종은 '${categoryText.label}'이고 실제 설명에서는 '${categoryText.businessTerm}' 표현을 사용해라.`,
+    "커피-음료 업종일 때만 자연스럽게 '카페'라는 표현을 사용하고, 다른 업종에는 '카페'라는 단어를 쓰지 마라.",
     `행정동명은 반드시 '${item.areaName}' 그대로 사용하고, 영어식 표기나 번역으로 바꾸지 마라.`,
     "출력은 3문장 이내로 작성한다.",
     "",
     `행정동명: ${item.areaName}`,
+    `선택 업종 코드: ${item.category?.code || "unknown"}`,
+    `선택 업종 라벨: ${categoryText.label}`,
+    `선택 업종명: ${categoryText.name}`,
+    `설명용 업종 표현: ${categoryText.businessTerm}`,
     `선택 시간대: ${timeOption.label} (${timeOption.range})`,
     `추천점수: ${item.score}`,
     `타깃 매출비율: ${(targetSalesRatio * 100).toFixed(1)}%`,
-    `카페전환효율: ${(conversionRate * 100).toFixed(2)}%`,
+    `${categoryText.conversionLabel}: ${(conversionRate * 100).toFixed(2)}%`,
     `선택시간대 매출비중: ${(item.metrics.selectedTimeSalesRatio * 100).toFixed(1)}%`,
     `선택시간대 유동인구비중: ${item.metrics.selectedTimePopulationRatio === null || item.metrics.selectedTimePopulationRatio === undefined ? "데이터 없음" : `${(item.metrics.selectedTimePopulationRatio * 100).toFixed(1)}%`}`,
     `객단가: ${averagePrice}원`,

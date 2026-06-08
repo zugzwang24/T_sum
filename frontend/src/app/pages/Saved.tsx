@@ -16,9 +16,19 @@ import {
   deleteSavedArea,
   getComparisons,
   getSavedAreas,
+  type BusinessCategory,
+  type Comparison,
   type SavedArea,
 } from "../lib/api";
 import { formatNumber, formatPercent, formatWon } from "../lib/format";
+
+function getItemCategory(item: { businessCategory?: BusinessCategory | null; category?: BusinessCategory | null }) {
+  return item.businessCategory || item.category || null;
+}
+
+function getComparisonCategory(comparison: Comparison) {
+  return comparison.items.map(getItemCategory).find(Boolean) || null;
+}
 
 export default function Saved() {
   const navigate = useNavigate();
@@ -46,20 +56,28 @@ export default function Saved() {
     }
   }
 
-  async function getOrCreateComparisonId() {
+  async function getOrCreateComparison() {
     const comparisons = await getComparisons();
     if (comparisons.items[0]) {
-      return comparisons.items[0].id;
+      return comparisons.items[0];
     }
 
     const created = await createComparison({ name: "내 비교함" });
-    return created.item.id;
+    return created.item;
   }
 
   async function addToComparison(item: SavedArea) {
     try {
-      const comparisonId = await getOrCreateComparisonId();
-      await addComparisonItem(comparisonId, {
+      const comparison = await getOrCreateComparison();
+      const existingCategory = getComparisonCategory(comparison);
+      const itemCategory = getItemCategory(item);
+
+      if (existingCategory && itemCategory && existingCategory.code !== itemCategory.code) {
+        setActionMessage("서로 다른 업종은 아직 같은 비교함에 담을 수 없습니다. 같은 업종끼리 비교해주세요.");
+        return;
+      }
+
+      await addComparisonItem(comparison.id, {
         areaFeatureId: item.areaFeatureId,
         areaCode: item.areaCode,
       });
@@ -152,13 +170,21 @@ export default function Saved() {
 
         {status === "ready" && items.length > 0 && (
           <div className="grid md:grid-cols-2 gap-4">
-            {items.map((item) => (
+            {items.map((item) => {
+              const category = getItemCategory(item);
+              const categoryLabel = category?.label || "업종";
+              const categoryQuery = category?.code ? `?category=${encodeURIComponent(category.code)}` : "";
+
+              return (
               <article key={item.id} className="bg-white border border-[#D9DED7] rounded-2xl p-5 shadow-sm">
                 <div className="flex justify-between gap-4 mb-4">
                   <div>
                     <div className="inline-flex items-center gap-1 text-xs font-bold text-[#2F7565] bg-[#E8F3EF] px-2 py-1 rounded-full mb-2">
                       <BookmarkCheck className="w-3.5 h-3.5" />
                       저장됨
+                    </div>
+                    <div className="inline-flex ml-2 text-xs font-bold text-[#173F35] bg-[#FFF3D8] px-2 py-1 rounded-full">
+                      {categoryLabel}
                     </div>
                     <h2 className="text-xl font-bold text-[#17211D]">{item.areaName}</h2>
                     <p className="text-xs text-[#6B726D] mt-1">행정동 코드 {item.areaCode}</p>
@@ -175,7 +201,16 @@ export default function Saved() {
 
                 <div className="grid grid-cols-2 gap-2 mb-5">
                   <Metric label="타깃 매출비율" value={formatPercent(item.metrics.targetSalesRatio ?? undefined)} />
-                  <Metric label="카페전환효율" value={formatPercent(item.metrics.cafeConversionRate ?? undefined, 2)} />
+                  <Metric
+                    label={`${categoryLabel} 전환효율`}
+                    value={formatPercent(
+                      item.metrics.categoryConversionRate ??
+                        item.metrics.conversionRate ??
+                        item.metrics.cafeConversionRate ??
+                        undefined,
+                      2
+                    )}
+                  />
                   <Metric label="타깃 유동인구" value={formatNumber(item.metrics.targetFootTraffic ?? undefined)} />
                   <Metric label="객단가" value={formatWon(item.metrics.averageTicket ?? undefined)} />
                 </div>
@@ -190,7 +225,7 @@ export default function Saved() {
                     비교 추가
                   </button>
                   <Link
-                    to={`/detail/${item.areaCode}`}
+                    to={`/detail/${item.areaCode}${categoryQuery}`}
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#173F35] text-sm font-bold text-white hover:bg-[#0f2c25]"
                   >
                     상세 보기
@@ -198,7 +233,8 @@ export default function Saved() {
                   </Link>
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

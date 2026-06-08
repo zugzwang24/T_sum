@@ -1,8 +1,9 @@
 const { getTimeOption } = require("../services/dataStore.service");
 
-function createHttpError(statusCode, message) {
+function createHttpError(statusCode, message, extra = {}) {
   const error = new Error(message);
   error.statusCode = statusCode;
+  Object.assign(error, extra);
   return error;
 }
 
@@ -28,4 +29,3 @@ module.exports = {
   parseCompareQuery,
   validateTimeQuery,
 };
-

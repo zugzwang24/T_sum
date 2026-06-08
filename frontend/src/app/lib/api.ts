@@ -37,6 +37,14 @@ export function clearStoredToken() {
 
 export type TimeValue = "dawn" | "morning" | "lunch" | "afternoon" | "evening" | "night";
 
+export const DEFAULT_CATEGORY_CODE = "COFFEE_BEVERAGE";
+
+export type BusinessCategory = {
+  code: string;
+  name: string;
+  label: string;
+};
+
 export type DataQuality = {
   score: number;
   grade: string;
@@ -61,6 +69,7 @@ export type RecommendationItem = {
     targetPopulation?: number;
     targetPopulationRatio?: number;
     conversionRate?: number;
+    categoryConversionRate?: number;
     cafeConversionRate?: number;
     selectedTimeSalesRatio?: number;
     selectedTimePopulationRatio?: number;
@@ -95,7 +104,9 @@ export type RecommendationResponse = {
     minQualityScore: number;
     useAdjustedScore: boolean;
     reviewCandidateCount: number;
+    category?: BusinessCategory | null;
   };
+  category?: BusinessCategory | null;
   items: RecommendationItem[];
   explanation?: {
     requestedAi: boolean;
@@ -107,6 +118,7 @@ export type RecommendationResponse = {
 };
 
 export type AreaDetail = RecommendationItem & {
+  category?: BusinessCategory | null;
   timeSalesRatios: Record<TimeValue, number>;
   timePopulationRatios: Record<TimeValue, number>;
 };
@@ -118,9 +130,21 @@ export type CompareResponse = {
     timeRange: string;
     targetAges: string[];
     minQualityScore: number;
+    category?: BusinessCategory | null;
   };
+  category?: BusinessCategory | null;
   areas: AreaDetail[];
   summary: string;
+};
+
+export type MetaResponse = {
+  categories?: BusinessCategory[];
+  timeOptions?: Array<{
+    value: TimeValue;
+    label: string;
+    range: string;
+  }>;
+  [key: string]: unknown;
 };
 
 export type AuthUser = {
@@ -144,6 +168,8 @@ export type SavedArea = {
   areaName: string;
   createdAt: string;
   updatedAt?: string;
+  businessCategory?: BusinessCategory | null;
+  category?: BusinessCategory | null;
   metrics: {
     monthlySalesAmount?: number | null;
     monthlySalesCount?: number | null;
@@ -152,6 +178,8 @@ export type SavedArea = {
     targetFootTraffic?: number | null;
     targetFootTrafficRatio?: number | null;
     cafeConversionRate?: number | null;
+    conversionRate?: number | null;
+    categoryConversionRate?: number | null;
     averageTicket?: number | null;
     recommendedTimeBand?: string | null;
   };
@@ -239,6 +267,7 @@ async function fetchJson<T>(
 }
 
 export function getRecommendations(params: {
+  category?: string;
   time: TimeValue;
   targetAges: string[];
   useAdjustedScore: boolean;
@@ -247,6 +276,7 @@ export function getRecommendations(params: {
 }) {
   return fetchJson<RecommendationResponse>(
     `/recommendations?${buildQuery({
+      category: params.category,
       time: params.time,
       targetAges: params.targetAges,
       useAdjustedScore: params.useAdjustedScore,
@@ -259,6 +289,7 @@ export function getRecommendations(params: {
 export function getAreaDetail(
   areaCode: string,
   params: {
+    category?: string;
     time: TimeValue;
     targetAges: string[];
     useAdjustedScore: boolean;
@@ -268,6 +299,7 @@ export function getAreaDetail(
 ) {
   return fetchJson<AreaDetail>(
     `/areas/${encodeURIComponent(areaCode)}?${buildQuery({
+      category: params.category,
       time: params.time,
       targetAges: params.targetAges,
       useAdjustedScore: params.useAdjustedScore,
@@ -279,6 +311,7 @@ export function getAreaDetail(
 }
 
 export function compareAreas(params: {
+  category?: string;
   areaA: string;
   areaB: string;
   time: TimeValue;
@@ -287,6 +320,7 @@ export function compareAreas(params: {
 }) {
   return fetchJson<CompareResponse>(
     `/compare?${buildQuery({
+      category: params.category,
       areaA: params.areaA,
       areaB: params.areaB,
       time: params.time,
@@ -294,6 +328,10 @@ export function compareAreas(params: {
       minQualityScore: params.minQualityScore,
     })}`
   );
+}
+
+export function getMeta() {
+  return fetchJson<MetaResponse>("/meta", { auth: false });
 }
 
 export function register(params: { email: string; password: string; name?: string }) {

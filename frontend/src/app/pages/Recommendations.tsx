@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import {
   AlertCircle,
   BarChart3,
@@ -18,10 +18,14 @@ import {
   addComparisonItem,
   buildQuery,
   createComparison,
+  DEFAULT_CATEGORY_CODE,
   getComparisons,
+  getMeta,
   getRecommendations,
   getSavedAreas,
   saveArea,
+  type BusinessCategory,
+  type Comparison,
   type RecommendationItem,
   type RecommendationResponse,
   type TimeValue,
@@ -34,11 +38,35 @@ import { useAuth } from "../auth/AuthContext";
 const DEFAULT_TIME: TimeValue = "evening";
 const DEFAULT_AGES = ["20", "30"];
 
+function getItemCategoryCode(item: { businessCategory?: BusinessCategory | null; category?: BusinessCategory | null }) {
+  return item.businessCategory?.code || item.category?.code || null;
+}
+
+function getComparisonCategory(comparison: Comparison) {
+  const categories = comparison.items
+    .map(getItemCategoryCode)
+    .filter((code): code is string => Boolean(code));
+
+  return categories[0] || null;
+}
+
 export default function Recommendations() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { isAuthenticated } = useAuth();
-  const [selectedTime, setSelectedTime] = useState<TimeValue>(DEFAULT_TIME);
-  const [selectedAges, setSelectedAges] = useState<string[]>(DEFAULT_AGES);
+  const [selectedCategory, setSelectedCategory] = useState(
+    searchParams.get("category") || DEFAULT_CATEGORY_CODE
+  );
+  const [categories, setCategories] = useState<BusinessCategory[]>([]);
+  const [selectedTime, setSelectedTime] = useState<TimeValue>(
+    (searchParams.get("time") || DEFAULT_TIME) as TimeValue
+  );
+  const [selectedAges, setSelectedAges] = useState<string[]>(
+    (searchParams.get("targetAges") || DEFAULT_AGES.join(","))
+      .split(",")
+      .map((age) => age.trim())
+      .filter(Boolean)
+  );
   const [useAdjustedScore, setUseAdjustedScore] = useState(true);
   const [stableOnly, setStableOnly] = useState(true);
   const [data, setData] = useState<RecommendationResponse | null>(null);
@@ -57,11 +85,23 @@ export default function Recommendations() {
     () =>
       buildQuery({
         time: selectedTime,
+        category: selectedCategory,
         targetAges: selectedAges,
         useAdjustedScore,
         minQualityScore,
       }),
-    [selectedTime, selectedAges, useAdjustedScore, minQualityScore]
+    [selectedCategory, selectedTime, selectedAges, useAdjustedScore, minQualityScore]
+  );
+
+  const selectedCategoryInfo = useMemo(
+    () =>
+      data?.category ||
+      categories.find((category) => category.code === selectedCategory) || {
+        code: selectedCategory,
+        name: selectedCategory,
+        label: selectedCategory === DEFAULT_CATEGORY_CODE ? "커피-음료" : selectedCategory,
+      },
+    [categories, data?.category, selectedCategory]
   );
 
   const selectedArea = useMemo(() => {
@@ -125,15 +165,15 @@ export default function Recommendations() {
     }
   }
 
-  async function getOrCreateComparisonId() {
+  async function getOrCreateComparison() {
     const comparisonResult = await getComparisons();
     const existing = comparisonResult.items[0];
     if (existing) {
-      return existing.id;
+      return existing;
     }
 
     const created = await createComparison({ name: "내 비교함" });
-    return created.item.id;
+    return created.item;
   }
 
   async function handleSaveArea(item: RecommendationItem) {
@@ -167,8 +207,16 @@ export default function Recommendations() {
     }
 
     try {
-      const comparisonId = await getOrCreateComparisonId();
-      const result = await addComparisonItem(comparisonId, {
+      const comparison = await getOrCreateComparison();
+      const existingCategory = getComparisonCategory(comparison);
+
+      if (existingCategory && existingCategory !== selectedCategoryInfo.code) {
+        setActionStatus("error");
+        setActionMessage("서로 다른 업종은 아직 같은 비교함에 담을 수 없습니다. 비교함을 비우거나 같은 업종끼리 비교해주세요.");
+        return;
+      }
+
+      const result = await addComparisonItem(comparison.id, {
         areaFeatureId: item.areaFeatureId,
         areaCode: item.areaCode,
       });
@@ -191,6 +239,7 @@ export default function Recommendations() {
 
     try {
       const result = await getRecommendations({
+        category: selectedCategory,
         time: selectedTime,
         targetAges: selectedAges,
         useAdjustedScore,
@@ -211,9 +260,33 @@ export default function Recommendations() {
     }
   }
 
+  async function loadCategories() {
+    try {
+      const meta = await getMeta();
+      const nextCategories = meta.categories?.length
+        ? meta.categories
+        : [{ code: DEFAULT_CATEGORY_CODE, name: "커피-음료", label: "커피-음료" }];
+      setCategories(nextCategories);
+
+      if (!nextCategories.some((category) => category.code === selectedCategory)) {
+        setSelectedCategory(DEFAULT_CATEGORY_CODE);
+      }
+    } catch {
+      setCategories([{ code: DEFAULT_CATEGORY_CODE, name: "커피-음료", label: "커피-음료" }]);
+    }
+  }
+
   useEffect(() => {
     loadRecommendations();
-  }, [selectedTime, selectedAges.join(","), useAdjustedScore, minQualityScore]);
+  }, [selectedCategory, selectedTime, selectedAges.join(","), useAdjustedScore, minQualityScore]);
+
+  useEffect(() => {
+    loadCategories();
+  }, []);
+
+  useEffect(() => {
+    setSearchParams(filterQuery, { replace: true });
+  }, [filterQuery, setSearchParams]);
 
   useEffect(() => {
     syncUserCollections();
@@ -223,13 +296,37 @@ export default function Recommendations() {
     <div className="flex-grow bg-[#F7F6F1] py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold text-[#173F35] mb-2">카페 상권 추천</h1>
-          <p className="text-[#6B726D]">운영 시간대와 타깃 연령대를 선택하면 백엔드 추천 API에서 실시간으로 순위를 불러옵니다.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#173F35] mb-2">
+            {selectedCategoryInfo.label} 상권 추천
+          </h1>
+          <p className="text-[#6B726D]">업종, 운영 시간대, 타깃 연령대를 선택하면 백엔드 추천 API에서 실시간으로 순위를 불러옵니다.</p>
         </div>
 
         <section className="bg-white rounded-2xl shadow-sm border border-[#D9DED7] p-6 mb-8">
           <div className="grid lg:grid-cols-[1fr_auto] gap-6">
             <div className="space-y-5">
+              <div>
+                <div className="text-sm font-bold text-[#17211D] mb-2 flex items-center gap-1">
+                  <BarChart3 className="w-4 h-4 text-[#2F7565]" /> 분석 업종
+                </div>
+                <div className="flex overflow-x-auto pb-2 sm:pb-0 sm:flex-wrap gap-2 hide-scrollbar">
+                  {categories.map((category) => (
+                    <button
+                      key={category.code}
+                      type="button"
+                      onClick={() => setSelectedCategory(category.code)}
+                      className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                        selectedCategory === category.code
+                          ? "bg-[#173F35] text-white"
+                          : "bg-[#F7F6F1] text-[#6B726D] hover:bg-[#EAE8E1]"
+                      }`}
+                    >
+                      {category.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <div className="text-sm font-bold text-[#17211D] mb-2 flex items-center gap-1">
                   <Clock className="w-4 h-4 text-[#2F7565]" /> 운영 시간대
@@ -347,6 +444,7 @@ export default function Recommendations() {
                 <RecommendationCard
                   key={item.areaCode}
                   item={item}
+                  category={selectedCategoryInfo}
                   selected={selectedArea?.areaCode === item.areaCode}
                   saved={Boolean(item.areaFeatureId && savedAreaFeatureIds.includes(item.areaFeatureId))}
                   checked={
@@ -362,7 +460,12 @@ export default function Recommendations() {
           </div>
 
           <div className="lg:col-span-5">
-            <DetailSidePanel item={selectedArea} detailQuery={filterQuery} selectedTime={selectedTime} />
+            <DetailSidePanel
+              item={selectedArea}
+              category={selectedCategoryInfo}
+              detailQuery={filterQuery}
+              selectedTime={selectedTime}
+            />
           </div>
         </div>
       </div>
@@ -372,6 +475,7 @@ export default function Recommendations() {
 
 function RecommendationCard({
   item,
+  category,
   selected,
   saved,
   checked,
@@ -381,6 +485,7 @@ function RecommendationCard({
   onToggleCompare,
 }: {
   item: RecommendationItem;
+  category: BusinessCategory;
   selected: boolean;
   saved: boolean;
   checked: boolean;
@@ -389,6 +494,8 @@ function RecommendationCard({
   onSave: () => void;
   onToggleCompare: () => void;
 }) {
+  const conversionLabel = `${category.label} 전환효율`;
+
   return (
     <article
       onClick={onSelect}
@@ -410,9 +517,14 @@ function RecommendationCard({
               {item.areaName}
               <span className="text-xs font-normal text-[#6B726D] bg-[#F7F6F1] px-2 py-0.5 rounded">행정동 {item.areaCode}</span>
             </h3>
-            <div className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 mt-1">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              {item.recommendationTier || "추천"} · 신뢰도 {item.dataQuality.score}점
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                {item.recommendationTier || "추천"} · 신뢰도 {item.dataQuality.score}점
+              </span>
+              <span className="text-xs font-bold text-[#173F35] bg-[#E8F3EF] px-2 py-0.5 rounded-full">
+                {category.label}
+              </span>
             </div>
           </div>
         </div>
@@ -424,7 +536,13 @@ function RecommendationCard({
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
         <Metric label="타깃 매출비율" value={formatPercent(item.metrics.targetSalesRatio)} />
-        <Metric label="카페전환효율" value={formatPercent(item.metrics.cafeConversionRate ?? item.metrics.conversionRate, 2)} />
+        <Metric
+          label={conversionLabel}
+          value={formatPercent(
+            item.metrics.categoryConversionRate ?? item.metrics.conversionRate ?? item.metrics.cafeConversionRate,
+            2
+          )}
+        />
         <Metric label="선택시간 매출" value={formatPercent(item.metrics.selectedTimeSalesRatio)} />
         <Metric label="타깃 유동인구" value={formatNumber(item.metrics.targetPopulation)} hiddenOnMobile />
         <Metric label="객단가" value={formatWon(item.metrics.averageOrderValue ?? item.metrics.averagePrice)} hiddenOnMobile />
@@ -478,10 +596,12 @@ function RecommendationCard({
 
 function DetailSidePanel({
   item,
+  category,
   detailQuery,
   selectedTime,
 }: {
   item: RecommendationItem | null;
+  category: BusinessCategory;
   detailQuery: string;
   selectedTime: TimeValue;
 }) {
@@ -494,12 +614,18 @@ function DetailSidePanel({
   }
 
   const breakdown = item.scoreBreakdown || {};
+  const conversionLabel = `${category.label} 전환효율`;
 
   return (
     <aside className="bg-white rounded-2xl shadow-lg border border-[#D9DED7] sticky top-24 overflow-hidden flex flex-col max-h-[calc(100vh-8rem)]">
       <div className="p-6 border-b border-[#D9DED7] bg-gradient-to-br from-white to-[#F7F6F1]">
         <div className="flex justify-between items-start mb-2">
-          <h2 className="text-2xl font-bold text-[#173F35]">{item.areaName}</h2>
+          <div>
+            <h2 className="text-2xl font-bold text-[#173F35]">{item.areaName}</h2>
+            <span className="inline-flex mt-1 text-xs font-bold text-[#173F35] bg-[#E8F3EF] px-2 py-0.5 rounded-full">
+              {category.label}
+            </span>
+          </div>
           <div className="text-right">
             <div className="text-3xl font-black text-[#C99728]">
               {item.score.toFixed(1)}
@@ -516,13 +642,19 @@ function DetailSidePanel({
         <div className="grid grid-cols-2 gap-3 mb-8">
           <MetricPanel label="타깃 매출비율" value={formatPercent(item.metrics.targetSalesRatio)} />
           <MetricPanel label="타깃 유동인구" value={formatNumber(item.metrics.targetPopulation)} />
-          <MetricPanel label="카페전환효율" value={formatPercent(item.metrics.cafeConversionRate ?? item.metrics.conversionRate, 2)} />
+          <MetricPanel
+            label={conversionLabel}
+            value={formatPercent(
+              item.metrics.categoryConversionRate ?? item.metrics.conversionRate ?? item.metrics.cafeConversionRate,
+              2
+            )}
+          />
           <MetricPanel label="선택시간 매출" value={formatPercent(item.metrics.selectedTimeSalesRatio)} />
         </div>
 
         <h3 className="font-bold text-[#173F35] mb-4">점수 구성</h3>
         <div className="space-y-3 mb-8">
-          <ScoreBar label="전환효율" value={breakdown.cafeConversionRate} />
+          <ScoreBar label="전환효율" value={breakdown.categoryConversionRate ?? breakdown.cafeConversionRate} />
           <ScoreBar label="타깃 매출" value={breakdown.mzSalesRatio} />
           <ScoreBar label="타깃 유동" value={breakdown.targetPopulationVolume} />
           <ScoreBar label="선택 시간" value={breakdown.selectedTimeSalesRatio} />

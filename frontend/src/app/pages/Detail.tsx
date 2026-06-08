@@ -10,7 +10,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { getAreaDetail, type AreaDetail, type TimeValue } from "../lib/api";
+import { DEFAULT_CATEGORY_CODE, getAreaDetail, type AreaDetail, type TimeValue } from "../lib/api";
 import { TIME_OPTIONS } from "../lib/options";
 import { formatNumber, formatPercent, formatWon } from "../lib/format";
 
@@ -33,6 +33,7 @@ export default function Detail() {
       .filter(Boolean);
 
     return {
+      category: searchParams.get("category") || DEFAULT_CATEGORY_CODE,
       time,
       targetAges: targetAges.length > 0 ? targetAges : DEFAULT_AGES,
       useAdjustedScore: searchParams.get("useAdjustedScore") !== "false",
@@ -63,7 +64,7 @@ export default function Detail() {
 
   useEffect(() => {
     loadDetail();
-  }, [id, query.time, query.targetAges.join(","), query.useAdjustedScore, query.minQualityScore]);
+  }, [id, query.category, query.time, query.targetAges.join(","), query.useAdjustedScore, query.minQualityScore]);
 
   return (
     <div className="flex-grow bg-[#F7F6F1] py-8">
@@ -86,6 +87,9 @@ export default function Detail() {
 }
 
 function DetailContent({ detail }: { detail: AreaDetail }) {
+  const categoryLabel = detail.category?.label || "업종";
+  const conversionLabel = `${categoryLabel} 전환효율`;
+
   return (
     <>
       <section className="bg-white rounded-2xl shadow-sm border border-[#D9DED7] p-8 mb-8">
@@ -97,6 +101,9 @@ function DetailContent({ detail }: { detail: AreaDetail }) {
             </div>
             <p className="text-[#6B726D] text-lg mb-4">행정동 코드 {detail.areaCode}</p>
             <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#E8F3EF] text-[#173F35] text-sm font-semibold border border-[#C8DDD5]">
+                {categoryLabel}
+              </div>
               <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#F0FDF4] text-green-700 text-sm font-semibold border border-green-200">
                 <ShieldCheck className="w-4 h-4" />
                 {detail.recommendationTier || "추천"} · 신뢰도 {detail.dataQuality.score}점 ({detail.dataQuality.grade})
@@ -139,7 +146,13 @@ function DetailContent({ detail }: { detail: AreaDetail }) {
             <Metric label="총 유동인구" value={formatNumber(detail.metrics.totalPopulation)} />
             <Metric label="타깃 유동인구" value={formatNumber(detail.metrics.targetPopulation)} />
             <Metric label="타깃 매출비율" value={formatPercent(detail.metrics.targetSalesRatio)} />
-            <Metric label="카페전환효율" value={formatPercent(detail.metrics.cafeConversionRate ?? detail.metrics.conversionRate, 2)} />
+            <Metric
+              label={conversionLabel}
+              value={formatPercent(
+                detail.metrics.categoryConversionRate ?? detail.metrics.conversionRate ?? detail.metrics.cafeConversionRate,
+                2
+              )}
+            />
             <Metric label="타깃 전환효율" value={formatPercent(detail.metrics.targetConversionRate, 2)} />
             <Metric label="객단가" value={formatWon(detail.metrics.averageOrderValue ?? detail.metrics.averagePrice)} />
             <Metric label="매출 안정성" value={formatPercent(detail.metrics.salesStability)} />
@@ -149,7 +162,7 @@ function DetailContent({ detail }: { detail: AreaDetail }) {
         <div className="bg-white rounded-2xl shadow-sm border border-[#D9DED7] p-6">
           <h3 className="text-lg font-bold text-[#17211D] mb-6">점수 구성</h3>
           <div className="space-y-4">
-            <ScoreBar label="전환효율" value={detail.scoreBreakdown?.cafeConversionRate} />
+            <ScoreBar label="전환효율" value={detail.scoreBreakdown?.categoryConversionRate ?? detail.scoreBreakdown?.cafeConversionRate} />
             <ScoreBar label="타깃 매출" value={detail.scoreBreakdown?.mzSalesRatio} />
             <ScoreBar label="타깃 유동" value={detail.scoreBreakdown?.targetPopulationVolume} />
             <ScoreBar label="선택 시간" value={detail.scoreBreakdown?.selectedTimeSalesRatio} />

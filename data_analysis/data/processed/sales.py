@@ -3,16 +3,23 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from category_config import DEFAULT_CATEGORIES
+
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 RAW_DIR = BASE_DIR / "raw"
 PROCESSED_DIR = BASE_DIR / "processed"
 
 SALES_INPUT = RAW_DIR / "추정매출.csv"
-SALES_OUTPUT = PROCESSED_DIR / "cafe_sales_features.csv"
+SALES_OUTPUT = PROCESSED_DIR / "sales_features.csv"
+CAFE_SALES_OUTPUT = PROCESSED_DIR / "cafe_sales_features.csv"
 
 DEFAULT_INDUSTRY_NAME = "커피-음료"
 TARGET_QUARTERS = [20251, 20252, 20253, 20254]
+
+CATEGORY_CODE_COL = "서비스_업종_코드"
+CATEGORY_NAME_COL = "서비스_업종_코드_명"
+DISTRICT_KEYS = ["행정동_코드", "행정동_코드_명"]
 
 AGE_COUNT_COLS = [
     "연령대_10_매출_건수",
@@ -65,6 +72,56 @@ def sales_stability(series):
     return 1 / (1 + coefficient_of_variation)
 
 
+def read_sales(sales_path=SALES_INPUT):
+    sales = pd.read_csv(sales_path, encoding="cp949")
+    sales["기준_년분기_코드"] = sales["기준_년분기_코드"].astype(int)
+    return sales
+
+
+def get_available_categories(sales_path=SALES_INPUT):
+    sales = pd.read_csv(
+        sales_path,
+        encoding="cp949",
+        usecols=[CATEGORY_CODE_COL, CATEGORY_NAME_COL],
+    )
+    categories = (
+        sales[[CATEGORY_CODE_COL, CATEGORY_NAME_COL]]
+        .drop_duplicates()
+        .sort_values([CATEGORY_NAME_COL, CATEGORY_CODE_COL])
+        .reset_index(drop=True)
+    )
+    return categories
+
+
+def resolve_categories(sales, categories=None):
+    requested = categories or DEFAULT_CATEGORIES
+    available = (
+        sales[[CATEGORY_CODE_COL, CATEGORY_NAME_COL]]
+        .drop_duplicates()
+        .set_index(CATEGORY_NAME_COL)[CATEGORY_CODE_COL]
+        .to_dict()
+    )
+
+    resolved = []
+    missing = []
+
+    for category in requested:
+        category_name = category["category_name"]
+        category_code = category.get("category_code") or available.get(category_name)
+        if category_name not in available:
+            missing.append(category)
+            continue
+        resolved.append(
+            {
+                "category_code": category_code,
+                "category_name": category_name,
+                "category_label": category.get("category_label") or category_name,
+            }
+        )
+
+    return resolved, missing
+
+
 def add_row_features(filtered):
     filtered = filtered.copy()
     filtered["총매출건수"] = filtered[AGE_COUNT_COLS].sum(axis=1)
@@ -90,33 +147,38 @@ def add_row_features(filtered):
     return filtered
 
 
-def build_sales_features(
-    industry_name=DEFAULT_INDUSTRY_NAME,
-    sales_path=SALES_INPUT,
-    output_path=SALES_OUTPUT,
-):
-    sales = pd.read_csv(sales_path, encoding="cp949")
-    sales["기준_년분기_코드"] = sales["기준_년분기_코드"].astype(int)
+def build_sales_features(category, sales=None, sales_path=SALES_INPUT, output_path=None):
+    sales = sales if sales is not None else read_sales(sales_path)
+    category_name = category["category_name"]
+    category_code = category.get("category_code")
+    category_label = category.get("category_label") or category_name
 
     filtered = sales[
-        (sales["서비스_업종_코드_명"] == industry_name)
+        (sales[CATEGORY_NAME_COL] == category_name)
         & (sales["기준_년분기_코드"].isin(TARGET_QUARTERS))
     ].copy()
+
+    if filtered.empty:
+        return pd.DataFrame()
+
+    if not category_code:
+        category_code = filtered[CATEGORY_CODE_COL].dropna().astype(str).mode().iat[0]
+
     filtered = add_row_features(filtered)
     period_counts = (
-        filtered.groupby(["행정동_코드", "행정동_코드_명"])["기준_년분기_코드"]
+        filtered.groupby(DISTRICT_KEYS)["기준_년분기_코드"]
         .nunique()
         .reset_index(name="집계_기간수")
     )
     quarterly_sales = (
         filtered.groupby(
-            ["행정동_코드", "행정동_코드_명", "기준_년분기_코드"],
+            [*DISTRICT_KEYS, "기준_년분기_코드"],
             as_index=False,
         )["당월_매출_건수"]
         .sum()
     )
     sales_stability_features = (
-        quarterly_sales.groupby(["행정동_코드", "행정동_코드_명"])["당월_매출_건수"]
+        quarterly_sales.groupby(DISTRICT_KEYS)["당월_매출_건수"]
         .apply(sales_stability)
         .reset_index(name="분기별_매출안정성")
     )
@@ -133,23 +195,12 @@ def build_sales_features(
     for col in AGE_COUNT_COLS + AGE_AMOUNT_COLS:
         agg_dict[col] = (col, "sum")
 
-    for label, col in TIME_AMOUNT_COLS.items():
+    for col in TIME_AMOUNT_COLS.values():
         agg_dict[col] = (col, "sum")
 
-    grouped = (
-        filtered.groupby(["행정동_코드", "행정동_코드_명"], as_index=False)
-        .agg(**agg_dict)
-    )
-    grouped = grouped.merge(
-        period_counts,
-        on=["행정동_코드", "행정동_코드_명"],
-        how="left",
-    )
-    grouped = grouped.merge(
-        sales_stability_features,
-        on=["행정동_코드", "행정동_코드_명"],
-        how="left",
-    )
+    grouped = filtered.groupby(DISTRICT_KEYS, as_index=False).agg(**agg_dict)
+    grouped = grouped.merge(period_counts, on=DISTRICT_KEYS, how="left")
+    grouped = grouped.merge(sales_stability_features, on=DISTRICT_KEYS, how="left")
 
     average_cols = [
         "당월_매출_금액",
@@ -179,6 +230,10 @@ def build_sales_features(
             grouped["당월_매출_금액"].astype(float),
         )
 
+    grouped.insert(2, "업종_코드", category_code)
+    grouped.insert(3, "업종명", category_name)
+    grouped.insert(4, "업종_라벨", category_label)
+
     if output_path is not None:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -186,14 +241,56 @@ def build_sales_features(
     return grouped
 
 
-def build_cafe_sales_features(sales_path=SALES_INPUT, output_path=SALES_OUTPUT):
+def build_all_sales_features(
+    categories=None,
+    sales_path=SALES_INPUT,
+    output_path=SALES_OUTPUT,
+):
+    sales = read_sales(sales_path)
+    resolved_categories, missing_categories = resolve_categories(sales, categories)
+
+    frames = []
+    row_counts = {}
+    for category in resolved_categories:
+        frame = build_sales_features(category, sales=sales, output_path=None)
+        row_counts[category["category_label"]] = len(frame)
+        if not frame.empty:
+            frames.append(frame)
+
+    if frames:
+        result = pd.concat(frames, ignore_index=True)
+    else:
+        result = pd.DataFrame()
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        result.to_csv(output_path, index=False, encoding="utf-8-sig")
+
+    return result, row_counts, missing_categories
+
+
+def build_cafe_sales_features(sales_path=SALES_INPUT, output_path=CAFE_SALES_OUTPUT):
     return build_sales_features(
-        industry_name=DEFAULT_INDUSTRY_NAME,
+        category={
+            "category_code": "CS100010",
+            "category_name": DEFAULT_INDUSTRY_NAME,
+            "category_label": DEFAULT_INDUSTRY_NAME,
+        },
         sales_path=sales_path,
         output_path=output_path,
     )
 
 
 if __name__ == "__main__":
-    df = build_cafe_sales_features()
+    df, counts, missing = build_all_sales_features()
+    print("[sales] row counts by category")
+    for label, count in counts.items():
+        print(f"- {label}: {count:,} rows")
+    if missing:
+        print("[sales] missing categories")
+        for category in missing:
+            print(f"- {category['category_label']} ({category['category_name']})")
+    else:
+        print("[sales] missing categories: none")
     print(f"saved {SALES_OUTPUT} ({len(df):,} rows)")

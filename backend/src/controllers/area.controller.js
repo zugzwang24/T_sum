@@ -2,6 +2,7 @@ const {
   getAreaDetailWithAi,
   searchAreas,
 } = require("../services/dataStore.service");
+const { getAreaFeatureRows, resolveCategory } = require("../services/areaFeature.service");
 const { createHttpError, validateTimeQuery } = require("../schemas/query.schema");
 
 function listAreas(req, res) {
@@ -10,12 +11,35 @@ function listAreas(req, res) {
 
 async function getAreaDetail(req, res) {
   validateTimeQuery(req.query);
+  const categoryContext = await resolveCategory(req.query.category);
+
+  if (!categoryContext.isValid) {
+    if (categoryContext.availableCategories.length === 0) {
+      throw createHttpError(
+        503,
+        "AreaFeature 데이터가 비어 있습니다. 먼저 `npm run db:seed`로 업종별 상권 데이터를 import해주세요."
+      );
+    }
+
+    throw createHttpError(400, "지원하지 않는 업종입니다.", {
+      categories: categoryContext.availableCategories,
+    });
+  }
+
+  const areaRows = await getAreaFeatureRows({
+    categoryCode: categoryContext.category.code,
+  });
 
   const result = await getAreaDetailWithAi(
     req.params.areaCode,
     req.query.time || "evening",
     req.query.ai,
-    req.query
+    {
+      ...req.query,
+      industry: categoryContext.category.name,
+      __category: categoryContext.category,
+      __areas: areaRows,
+    }
   );
 
   if (!result) {
@@ -29,4 +53,3 @@ module.exports = {
   getAreaDetail,
   listAreas,
 };
-
