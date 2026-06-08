@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router";
-import { Coffee, Menu, X } from "lucide-react";
+import { Menu, Store, X } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
 
@@ -29,7 +29,7 @@ export default function Header() {
           <div className="flex-shrink-0 flex items-center">
             <Link to="/" className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-[#173F35] flex items-center justify-center">
-                <Coffee className="w-5 h-5 text-[#FFF3D8]" />
+                <Store className="w-5 h-5 text-[#FFF3D8]" />
               </div>
               <span className="font-bold text-xl text-[#173F35]">황금을 찾아라</span>
             </Link>

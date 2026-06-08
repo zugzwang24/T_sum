@@ -5,7 +5,16 @@ import { useState } from "react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import heroImg from "../../imports/image.png";
 
+const CATEGORY_OPTIONS = [
+  { code: "COFFEE_BEVERAGE", label: "커피-음료" },
+  { code: "KOREAN_FOOD", label: "한식" },
+  { code: "CHICKEN", label: "치킨" },
+  { code: "BAKERY", label: "제과점" },
+  { code: "CONVENIENCE_STORE", label: "편의점" },
+];
+
 export default function Home() {
+  const [selectedCategory, setSelectedCategory] = useState(CATEGORY_OPTIONS[0]);
   const [selectedTimes, setSelectedTimes] = useState<string[]>(["점심 11~14"]);
   const [selectedAges, setSelectedAges] = useState<string[]>(["20대", "30대"]);
 
@@ -16,6 +25,8 @@ export default function Home() {
   const toggleAge = (age: string) => {
     setSelectedAges(prev => prev.includes(age) ? prev.filter(a => a !== age) : [...prev, age]);
   };
+
+  const recommendationPath = `/recommendations?category=${selectedCategory.code}`;
 
   return (
     <div className="w-full">
@@ -30,16 +41,16 @@ export default function Home() {
                 <span>서울 공공데이터 기반 상권 추천</span>
               </div>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-[#173F35] tracking-tight leading-tight mb-6">
-                내 카페에 맞는 서울 상권, <br className="hidden lg:block" />
+                내 업종에 맞는 서울 상권, <br className="hidden lg:block" />
                 <span className="text-[#C99728]">데이터로 먼저</span> 찾아보세요
               </h1>
               <p className="text-lg text-[#6B726D] mb-10 max-w-2xl mx-auto lg:mx-0 leading-relaxed">
-                운영 시간대, 타깃 연령대, 매출 전환 효율, 데이터 신뢰도를 종합해 
+                업종, 운영 시간대, 타깃 연령대, 매출 전환 효율, 데이터 신뢰도를 종합해
                 창업 후보 상권을 추천합니다.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
                 <Link
-                  to="/recommendations"
+                  to={recommendationPath}
                   className="inline-flex items-center justify-center gap-2 bg-[#173F35] text-white px-8 py-4 rounded-xl text-lg font-bold hover:bg-[#0f2c25] transition-colors shadow-lg"
                 >
                   바로 추천받기
@@ -84,7 +95,7 @@ export default function Home() {
                     <span className="text-[#17211D] font-bold text-lg">70.0%</span>
                   </div>
                   <div className="bg-[#F7F6F1] p-4 rounded-xl flex justify-between items-center">
-                    <span className="text-[#6B726D] font-medium">카페전환효율</span>
+                    <span className="text-[#6B726D] font-medium">업종전환효율</span>
                     <span className="text-[#17211D] font-bold text-lg">4.24%</span>
                   </div>
                   <div className="bg-[#F7F6F1] p-4 rounded-xl flex justify-between items-center">
@@ -106,11 +117,35 @@ export default function Home() {
       <section className="py-16 bg-white border-y border-[#D9DED7]">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-10">
-            <h2 className="text-3xl font-bold text-[#173F35]">어떤 카페를 준비하고 있나요?</h2>
-            <p className="text-[#6B726D] mt-2">조건을 선택하면 맞춤형 상권을 추천해 드립니다.</p>
+            <h2 className="text-3xl font-bold text-[#173F35]">어떤 업종을 준비하고 있나요?</h2>
+            <p className="text-[#6B726D] mt-2">업종과 조건을 선택하면 맞춤형 상권을 추천해 드립니다.</p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-md border border-[#D9DED7] p-6 md:p-8">
+            {/* Category */}
+            <div className="mb-8">
+              <h3 className="text-lg font-bold text-[#17211D] mb-4 flex items-center gap-2">
+                <MapPin className="w-5 h-5 text-[#2F7565]" />
+                분석 업종
+              </h3>
+              <div className="flex flex-wrap gap-3">
+                {CATEGORY_OPTIONS.map((category) => (
+                  <button
+                    key={category.code}
+                    type="button"
+                    onClick={() => setSelectedCategory(category)}
+                    className={`px-4 py-2.5 rounded-full text-sm font-semibold transition-all ${
+                      selectedCategory.code === category.code
+                        ? "bg-[#173F35] text-white shadow-md transform scale-105"
+                        : "bg-[#F7F6F1] text-[#6B726D] hover:bg-[#EAE8E1]"
+                    }`}
+                  >
+                    {category.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Time */}
             <div className="mb-8">
               <h3 className="text-lg font-bold text-[#17211D] mb-4 flex items-center gap-2">
@@ -174,7 +209,7 @@ export default function Home() {
             </div>
 
             <Link
-              to="/recommendations"
+              to={recommendationPath}
               className="block w-full text-center bg-[#C99728] text-white py-4 rounded-xl text-lg font-bold hover:bg-[#b08423] transition-colors shadow-lg"
             >
               상권 추천 결과 보기
@@ -192,8 +227,8 @@ export default function Home() {
                 <BarChart3 className="w-6 h-6 text-[#C99728]" />
               </div>
               <h3 className="text-xl font-bold text-[#173F35] mb-3">실제 구매 전환 반영</h3>
-              <p className="text-[#6B726D] leading-relaxed">
-                단순 유동인구가 아닌, 실제로 카페에서 소비가 일어나는 전환 효율을 분석하여 알짜 상권을 찾아냅니다.
+                <p className="text-[#6B726D] leading-relaxed">
+                단순 유동인구가 아닌, 실제로 선택 업종에서 소비가 일어나는 전환 효율을 분석하여 알짜 상권을 찾아냅니다.
               </p>
             </div>
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-[#D9DED7]">
@@ -250,7 +285,7 @@ export default function Home() {
                         <ShieldCheck className="w-4 h-4" /> 98점
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-[#6B726D]">2030 타깃 매출비율 70%, 높은 전환 효율</td>
+                    <td className="px-6 py-4 text-[#6B726D]">2030 타깃 매출비율 70%, 높은 업종 전환효율</td>
                   </tr>
                   <tr className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
@@ -326,10 +361,10 @@ export default function Home() {
         <div className="max-w-4xl mx-auto px-4 text-center">
           <Sparkles className="w-12 h-12 text-[#C99728] mx-auto mb-6" />
           <h2 className="text-3xl sm:text-4xl font-bold text-[#173F35] mb-6">
-            지금 내 조건에 맞는 카페 상권을 찾아보세요
+            지금 내 업종과 조건에 맞는 상권을 찾아보세요
           </h2>
           <Link
-            to="/recommendations"
+            to={recommendationPath}
             className="inline-flex items-center justify-center gap-2 bg-[#173F35] text-white px-10 py-5 rounded-xl text-xl font-bold hover:bg-[#0f2c25] transition-colors shadow-xl transform hover:scale-105"
           >
             추천 시작하기
