@@ -1,5 +1,6 @@
 const ALLOWED_MUTATIONS = [
   { method: "POST", pattern: /^\/api\/auth\/(register|login)$/ },
+  { method: "POST", pattern: /^\/api\/ai\/(area-report|compare-summary|reliability-explanation)$/ },
   { method: "POST", pattern: /^\/api\/saved-areas$/ },
   { method: "DELETE", pattern: /^\/api\/saved-areas\/[^/]+$/ },
   { method: "POST", pattern: /^\/api\/comparisons$/ },
