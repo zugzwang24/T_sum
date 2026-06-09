@@ -1,5 +1,6 @@
 const express = require("express");
 const { getApiInfo } = require("../controllers/apiInfo.controller");
+const aiRoutes = require("./ai.routes");
 const authRoutes = require("./auth.routes");
 const areaRoutes = require("./area.routes");
 const comparisonRoutes = require("./comparison.routes");
@@ -11,6 +12,7 @@ const savedAreaRoutes = require("./savedArea.routes");
 const router = express.Router();
 
 router.get("/", getApiInfo);
+router.use(aiRoutes);
 router.use(authRoutes);
 router.use(metaRoutes);
 router.use(recommendationRoutes);

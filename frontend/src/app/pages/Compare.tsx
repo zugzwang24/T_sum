@@ -16,9 +16,11 @@ import {
   createComparison,
   DEFAULT_CATEGORY_CODE,
   deleteComparisonItem,
+  getAiCompareSummary,
   getComparisons,
   type AreaDetail,
   type BusinessCategory,
+  type CompareAiSummaryResponse,
   type CompareResponse,
   type Comparison,
   type TimeValue,
@@ -51,6 +53,9 @@ export default function Compare() {
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [categoryNotice, setCategoryNotice] = useState("");
+  const [aiSummary, setAiSummary] = useState<CompareAiSummaryResponse | null>(null);
+  const [aiSummaryStatus, setAiSummaryStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [aiSummaryError, setAiSummaryError] = useState("");
 
   const query = useMemo(() => {
     const targetAges = (searchParams.get("targetAges") || DEFAULT_AGES.join(","))
@@ -79,6 +84,9 @@ export default function Compare() {
     setStatus("loading");
     setErrorMessage("");
     setCategoryNotice("");
+    setAiSummary(null);
+    setAiSummaryStatus("idle");
+    setAiSummaryError("");
 
     try {
       const result = await getComparisons();
@@ -134,6 +142,36 @@ export default function Compare() {
     } catch (error) {
       setStatus("error");
       setErrorMessage(error instanceof Error ? error.message : "비교 항목 삭제에 실패했습니다.");
+    }
+  }
+
+  async function loadAiCompareSummary() {
+    if (!analysis || !comparison) {
+      return;
+    }
+
+    setAiSummaryStatus("loading");
+    setAiSummaryError("");
+
+    try {
+      const result = await getAiCompareSummary({
+        comparisonId: comparison.id,
+        items: analysis.areas.map((area) => ({
+          areaFeatureId: area.areaFeatureId,
+          districtName: area.areaName,
+          category: area.category,
+          score: area.score,
+          metrics: area.metrics,
+          dataQuality: area.dataQuality,
+          scoreBreakdown: area.scoreBreakdown,
+          cautions: area.cautions,
+        })),
+      });
+      setAiSummary(result);
+      setAiSummaryStatus("idle");
+    } catch (error) {
+      setAiSummaryStatus("error");
+      setAiSummaryError(error instanceof Error ? error.message : "AI 비교 요약을 불러오지 못했습니다.");
     }
   }
 
@@ -278,6 +316,23 @@ export default function Compare() {
                     비교 요약
                   </h2>
                   <p className="text-sm text-[#17211D] leading-7 mb-5">{analysis.summary}</p>
+                  <div className="mb-5">
+                    <button
+                      type="button"
+                      onClick={loadAiCompareSummary}
+                      disabled={aiSummaryStatus === "loading"}
+                      className="inline-flex items-center justify-center gap-2 bg-[#173F35] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#0f2c25] disabled:opacity-60"
+                    >
+                      <Sparkles className={`w-4 h-4 ${aiSummaryStatus === "loading" ? "animate-spin" : ""}`} />
+                      AI 비교 요약
+                    </button>
+                  </div>
+                  {aiSummaryStatus === "error" && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm mb-5">
+                      {aiSummaryError}
+                    </div>
+                  )}
+                  {aiSummary && <CompareAiSummaryCard response={aiSummary} />}
                   <div className="grid md:grid-cols-2 gap-4">
                     {analysis.areas.map((area, index) => (
                       <div key={area.areaCode} className="bg-white/60 p-4 rounded-xl">
@@ -303,6 +358,58 @@ export default function Compare() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function CompareAiSummaryCard({ response }: { response: CompareAiSummaryResponse }) {
+  const summary = response.summary;
+  const isFallback = response.mode !== "openai";
+
+  return (
+    <div className="bg-white/70 border border-[#E8D4A2] rounded-2xl p-5 mb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <h3 className="font-bold text-[#173F35]">AI 비교 요약</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${
+              isFallback ? "bg-[#FFF3D8] text-[#8A6418]" : "bg-[#E8F3EF] text-[#173F35]"
+            }`}
+          >
+            {isFallback ? "rule-based fallback" : "OpenAI"}
+          </span>
+          {response.error && <span className="text-xs text-[#8A6418]">{response.error}</span>}
+        </div>
+      </div>
+      <p className="text-sm leading-7 text-[#17211D] mb-4">{summary.overall}</p>
+      <div className="grid md:grid-cols-3 gap-3 mb-4">
+        <AiComparePoint title="안정적 선택" text={summary.bestForStableChoice} />
+        <AiComparePoint title="타깃 수요" text={summary.bestForTargetDemand} />
+        <AiComparePoint title="프리미엄 전략" text={summary.bestForPremiumStrategy} />
+      </div>
+      <div className="space-y-2 mb-4">
+        {summary.risks.map((risk) => (
+          <div key={risk} className="flex gap-2 text-sm text-[#17211D]">
+            <AlertCircle className="w-4 h-4 text-[#C99728] shrink-0 mt-0.5" />
+            <span>{risk}</span>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-xl bg-[#F7F6F1] border border-[#D9DED7] p-4 text-sm font-medium text-[#17211D] leading-7">
+        {summary.finalRecommendation}
+      </div>
+    </div>
+  );
+}
+
+function AiComparePoint({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="bg-white rounded-xl border border-[#D9DED7] p-4">
+      <div className="flex items-center gap-2 text-sm font-bold text-[#173F35] mb-2">
+        <CheckCircle2 className="w-4 h-4 text-[#2F7565]" />
+        {title}
+      </div>
+      <p className="text-sm text-[#17211D] leading-6">{text}</p>
     </div>
   );
 }

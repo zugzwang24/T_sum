@@ -10,7 +10,16 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { DEFAULT_CATEGORY_CODE, getAreaDetail, type AreaDetail, type TimeValue } from "../lib/api";
+import {
+  DEFAULT_CATEGORY_CODE,
+  getAreaAiReport,
+  getAreaDetail,
+  getReliabilityAiExplanation,
+  type AreaAiReportResponse,
+  type AreaDetail,
+  type ReliabilityAiExplanationResponse,
+  type TimeValue,
+} from "../lib/api";
 import { TIME_OPTIONS } from "../lib/options";
 import { formatNumber, formatPercent, formatWon } from "../lib/format";
 
@@ -80,13 +89,82 @@ export default function Detail() {
         {status === "error" && (
           <ErrorPanel message={errorMessage} onRetry={loadDetail} />
         )}
-        {status === "ready" && detail && <DetailContent detail={detail} />}
+        {status === "ready" && detail && <DetailContent detail={detail} query={query} />}
       </div>
     </div>
   );
 }
 
-function DetailContent({ detail }: { detail: AreaDetail }) {
+function DetailContent({
+  detail,
+  query,
+}: {
+  detail: AreaDetail;
+  query: {
+    category: string;
+    time: TimeValue;
+    targetAges: string[];
+    useAdjustedScore: boolean;
+    minQualityScore: number;
+  };
+}) {
+  const [report, setReport] = useState<AreaAiReportResponse | null>(null);
+  const [reportStatus, setReportStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [reportError, setReportError] = useState("");
+  const [reliability, setReliability] = useState<ReliabilityAiExplanationResponse | null>(null);
+  const [reliabilityStatus, setReliabilityStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [reliabilityError, setReliabilityError] = useState("");
+
+  async function loadAreaReport() {
+    setReportStatus("loading");
+    setReportError("");
+
+    try {
+      const result = await getAreaAiReport({
+        areaFeatureId: detail.areaFeatureId,
+        context: {
+          category: detail.category,
+          score: detail.score,
+          baseScore: detail.baseScore,
+          reliabilityFactor: detail.reliabilityFactor,
+          metrics: detail.metrics,
+          scoreBreakdown: detail.scoreBreakdown,
+          dataQuality: detail.dataQuality,
+          cautions: detail.cautions,
+          selectedTime: query.time,
+          targetAges: query.targetAges,
+        },
+      });
+      setReport(result);
+      setReportStatus("idle");
+    } catch (error) {
+      setReportStatus("error");
+      setReportError(error instanceof Error ? error.message : "AI 상권 분석 리포트를 불러오지 못했습니다.");
+    }
+  }
+
+  async function loadReliabilityExplanation() {
+    setReliabilityStatus("loading");
+    setReliabilityError("");
+
+    try {
+      const result = await getReliabilityAiExplanation({
+        districtName: detail.areaName,
+        category: detail.category,
+        score: detail.score,
+        baseScore: detail.baseScore,
+        dataQuality: detail.dataQuality,
+        reliabilityFactor: detail.reliabilityFactor,
+        cautions: detail.cautions,
+        metrics: detail.metrics,
+      });
+      setReliability(result);
+      setReliabilityStatus("idle");
+    } catch (error) {
+      setReliabilityStatus("error");
+      setReliabilityError(error instanceof Error ? error.message : "신뢰도 해석을 불러오지 못했습니다.");
+    }
+  }
   const categoryLabel = detail.category?.label || "업종";
   const conversionLabel = `${categoryLabel} 전환효율`;
 
@@ -108,6 +186,15 @@ function DetailContent({ detail }: { detail: AreaDetail }) {
                 <ShieldCheck className="w-4 h-4" />
                 {detail.recommendationTier || "추천"} · 신뢰도 {detail.dataQuality.score}점 ({detail.dataQuality.grade})
               </div>
+              <button
+                type="button"
+                onClick={loadReliabilityExplanation}
+                disabled={reliabilityStatus === "loading"}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-[#173F35] text-sm font-bold border border-[#C8DDD5] hover:bg-[#F7F6F1] disabled:opacity-60"
+              >
+                <ShieldCheck className={`w-4 h-4 ${reliabilityStatus === "loading" ? "animate-pulse" : ""}`} />
+                신뢰도 해석 보기
+              </button>
               <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold border border-blue-200">
                 <BarChart3 className="w-4 h-4" />
                 {detail.metrics.salesPeriodCount ?? "-"}개 기간 평균 기준
@@ -136,7 +223,27 @@ function DetailContent({ detail }: { detail: AreaDetail }) {
         {detail.aiReason?.error && (
           <p className="mt-3 text-xs text-[#FFF3D8]">AI 호출 실패: {detail.aiReason.error}</p>
         )}
+        <div className="mt-5 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={loadAreaReport}
+            disabled={reportStatus === "loading"}
+            className="inline-flex items-center justify-center gap-2 bg-[#FFF3D8] text-[#173F35] px-4 py-2 rounded-xl text-sm font-bold hover:bg-white disabled:opacity-60"
+          >
+            <Sparkles className={`w-4 h-4 ${reportStatus === "loading" ? "animate-spin" : ""}`} />
+            AI 상권 분석 리포트
+          </button>
+        </div>
       </section>
+
+      {(report || reportStatus === "error" || reliability || reliabilityStatus === "error") && (
+        <section className="grid lg:grid-cols-2 gap-6 mb-8">
+          {reportStatus === "error" && <AiErrorCard title="AI 상권 분석 리포트" message={reportError} />}
+          {report && <AreaReportCard response={report} />}
+          {reliabilityStatus === "error" && <AiErrorCard title="데이터 신뢰도 해석" message={reliabilityError} />}
+          {reliability && <ReliabilityExplanationCard response={reliability} />}
+        </section>
+      )}
 
       <section className="grid md:grid-cols-2 gap-8 mb-8">
         <div className="bg-white rounded-2xl shadow-sm border border-[#D9DED7] p-6">
@@ -231,6 +338,90 @@ function DetailContent({ detail }: { detail: AreaDetail }) {
         </div>
       </section>
     </>
+  );
+}
+
+function AiModePill({ mode, error }: { mode: string; error?: string }) {
+  const isFallback = mode !== "openai";
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span
+        className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${
+          isFallback ? "bg-[#FFF3D8] text-[#8A6418]" : "bg-[#E8F3EF] text-[#173F35]"
+        }`}
+      >
+        {isFallback ? "rule-based fallback" : "OpenAI"}
+      </span>
+      {error && <span className="text-xs text-[#8A6418]">{error}</span>}
+    </div>
+  );
+}
+
+function AiList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <h4 className="text-sm font-bold text-[#173F35] mb-2">{title}</h4>
+      <div className="space-y-2">
+        {items.map((item) => (
+          <div key={item} className="flex gap-2 text-sm text-[#17211D] leading-6">
+            <CheckCircle2 className="w-4 h-4 text-[#2F7565] shrink-0 mt-1" />
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AiErrorCard({ title, message }: { title: string; message: string }) {
+  return (
+    <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-red-700">
+      <div className="font-bold mb-2">{title}</div>
+      <p className="text-sm">{message}</p>
+    </div>
+  );
+}
+
+function AreaReportCard({ response }: { response: AreaAiReportResponse }) {
+  const report = response.report;
+  return (
+    <div className="bg-white rounded-2xl border border-[#D9DED7] shadow-sm p-6">
+      <div className="flex flex-col gap-3 mb-5">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-lg font-bold text-[#173F35]">AI 상권 분석 리포트</h3>
+          <span className="text-sm font-black text-[#C99728]">{report.finalOpinion}</span>
+        </div>
+        <AiModePill mode={response.mode} error={response.error} />
+      </div>
+      <p className="text-sm leading-7 text-[#17211D] mb-5">{report.summary}</p>
+      <div className="space-y-5">
+        <AiList title="강점" items={report.strengths} />
+        <AiList title="리스크" items={report.risks} />
+        <AiList title="운영 전략" items={report.operationStrategy} />
+        <AiList title="타깃 전략" items={report.targetStrategy} />
+        <AiList title="현장 체크리스트" items={report.fieldChecklist} />
+      </div>
+    </div>
+  );
+}
+
+function ReliabilityExplanationCard({ response }: { response: ReliabilityAiExplanationResponse }) {
+  const explanation = response.explanation;
+  return (
+    <div className="bg-white rounded-2xl border border-[#D9DED7] shadow-sm p-6">
+      <div className="flex flex-col gap-3 mb-5">
+        <h3 className="text-lg font-bold text-[#173F35]">데이터 신뢰도 해석 AI</h3>
+        <AiModePill mode={response.mode} error={response.error} />
+      </div>
+      <p className="text-sm leading-7 text-[#17211D] mb-5">{explanation.plainSummary}</p>
+      <div className="space-y-5">
+        <AiList title="높거나 낮게 나온 이유" items={explanation.whyLowOrHigh} />
+        <AiList title="추가로 확인할 것" items={explanation.whatToCheck} />
+        <div className="rounded-xl bg-[#F7F6F1] border border-[#D9DED7] p-4 text-sm text-[#17211D] leading-7">
+          {explanation.interpretationGuide}
+        </div>
+      </div>
+    </div>
   );
 }
 

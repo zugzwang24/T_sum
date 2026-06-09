@@ -137,6 +137,58 @@ export type CompareResponse = {
   summary: string;
 };
 
+export type AiMode = "openai" | "rule-fallback" | string;
+
+export type AreaAiReport = {
+  summary: string;
+  strengths: string[];
+  risks: string[];
+  operationStrategy: string[];
+  targetStrategy: string[];
+  fieldChecklist: string[];
+  finalOpinion: string;
+};
+
+export type AreaAiReportResponse = {
+  mode: AiMode;
+  provider?: string;
+  model?: string | null;
+  error?: string;
+  report: AreaAiReport;
+};
+
+export type CompareAiSummary = {
+  overall: string;
+  bestForStableChoice: string;
+  bestForTargetDemand: string;
+  bestForPremiumStrategy: string;
+  risks: string[];
+  finalRecommendation: string;
+};
+
+export type CompareAiSummaryResponse = {
+  mode: AiMode;
+  provider?: string;
+  model?: string | null;
+  error?: string;
+  summary: CompareAiSummary;
+};
+
+export type ReliabilityAiExplanation = {
+  plainSummary: string;
+  whyLowOrHigh: string[];
+  whatToCheck: string[];
+  interpretationGuide: string;
+};
+
+export type ReliabilityAiExplanationResponse = {
+  mode: AiMode;
+  provider?: string;
+  model?: string | null;
+  error?: string;
+  explanation: ReliabilityAiExplanation;
+};
+
 export type MetaResponse = {
   categories?: BusinessCategory[];
   timeOptions?: Array<{
@@ -328,6 +380,66 @@ export function compareAreas(params: {
       minQualityScore: params.minQualityScore,
     })}`
   );
+}
+
+export function getAreaAiReport(params: {
+  areaFeatureId?: string | null;
+  recommendationResultId?: string | null;
+  context: {
+    category?: BusinessCategory | null;
+    score?: number;
+    baseScore?: number;
+    reliabilityFactor?: number;
+    metrics?: RecommendationItem["metrics"];
+    scoreBreakdown?: RecommendationItem["scoreBreakdown"];
+    dataQuality?: RecommendationItem["dataQuality"];
+    cautions?: string[];
+    selectedTime?: TimeValue | string;
+    targetAges?: string[];
+  };
+}) {
+  return fetchJson<AreaAiReportResponse>("/ai/area-report", {
+    method: "POST",
+    body: params,
+    timeoutMs: 60000,
+  });
+}
+
+export function getAiCompareSummary(params: {
+  comparisonId?: string | null;
+  items: Array<{
+    areaFeatureId?: string | null;
+    districtName: string;
+    category?: BusinessCategory | null;
+    score?: number;
+    metrics?: RecommendationItem["metrics"];
+    dataQuality?: RecommendationItem["dataQuality"];
+    scoreBreakdown?: RecommendationItem["scoreBreakdown"];
+    cautions?: string[];
+  }>;
+}) {
+  return fetchJson<CompareAiSummaryResponse>("/ai/compare-summary", {
+    method: "POST",
+    body: params,
+    timeoutMs: 60000,
+  });
+}
+
+export function getReliabilityAiExplanation(params: {
+  districtName: string;
+  category?: BusinessCategory | null;
+  score?: number;
+  baseScore?: number;
+  dataQuality?: RecommendationItem["dataQuality"];
+  reliabilityFactor?: number;
+  cautions?: string[];
+  metrics?: RecommendationItem["metrics"];
+}) {
+  return fetchJson<ReliabilityAiExplanationResponse>("/ai/reliability-explanation", {
+    method: "POST",
+    body: params,
+    timeoutMs: 60000,
+  });
 }
 
 export function getMeta() {
