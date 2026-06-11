@@ -1,57 +1,58 @@
-# 황금을 찾아라 (Find the Gold)
+# 황금을 찾아라 (T-SUM)
 
-> 유동인구가 아닌 **실제 구매 전환**으로 찾는 MZ 카페 상권 추천 서비스
+> 서울시 공공데이터 기반, **업종·시간대·타깃 연령**에 맞춰 실제 구매 전환이 높은 행정동을
+> 추천하는 **다중 업종 상권 추천 풀스택 서비스**
 
-서울시 공공데이터(유동인구 · 추정매출)를 기반으로, **2030세대 대상 카페 창업자**가
-원하는 운영 시간대에 실제 카페 구매 전환이 높은 **행정동(administrative district)** 을
-추천하는 상권 추천 서비스입니다. 단순히 유동인구가 많은 지역이 아니라, **유동인구 대비
-실제 카페 구매가 활발한 지역**을 점수화해 추천하는 것이 핵심 차별점입니다.
+유동인구가 많은 곳이 아니라 **유동인구 대비 실제 매출 전환이 높은 행정동**을 점수화해 추천합니다.
+초기에는 커피·음료 단일 업종(MVP)으로 시작했고, 현재는 **10개 업종**으로 확장되었습니다.
+추천 점수는 백엔드 알고리즘이 계산하고, AI(LLM)는 결과를 자연어로 **설명만** 합니다.
 
-> 이 문서는 현재 git branch(`taehyeong`)의 **실제 코드**를 기준으로 작성되었습니다.
-> 프로젝트의 상세 기획·요구사항은 [`CODEX_DEV_BRIEF_황금을찾아라.md`](./CODEX_DEV_BRIEF_황금을찾아라.md)
-> 에 정리되어 있으며, 일부 항목은 브리프(기획)와 현재 구현이 다릅니다(아래 본문에서 명시).
+- **Live Demo:** https://t-sum.vercel.app/ ([확인 필요] 실제 가동 여부는 배포 상태에 따름)
+- 상세 기획·설계 문서: [`PROJECT_DEVELOPMENT_SUMMARY.md`](./PROJECT_DEVELOPMENT_SUMMARY.md)
+
+> 이 문서는 현재 branch(`taehyeong`, `main` 머지 반영)의 **실제 코드** 기준입니다.
 
 ---
 
-## 1. 프로젝트 개요
+## 1. 아키텍처 개요
 
-- **타겟 / 업종 (MVP 고정값):** 2030세대 / 커피·음료
-- **추천 단위:** 서울시 행정동
-- **사용자 입력:** 희망 운영 시간대 (새벽 / 오전 / 점심 / 오후 / 저녁 / 심야)
-- **출력:** 추천 행정동 순위, 추천점수(0~100), 핵심 지표, 추천 사유, 행정동 비교
+```
+[Python 전처리]  raw CSV → feature CSV(area_features.csv)
+        │  seed.js (csv-parse)
+        ▼
+[PostgreSQL] ◀── Prisma ORM ── [Express 백엔드 API]  (추천 점수·신뢰도 계산, JWT 인증, AI 설명)
+                                        ▲  REST/JSON
+                                        │
+                              [Vite + React 프론트엔드]  (추천/상세/비교/저장/로그인)
+```
 
-서비스는 세 개의 독립 파트로 구성됩니다.
-
-| 파트 | 위치 | 역할 |
+| 파트 | 위치 | 핵심 |
 |------|------|------|
-| **데이터 분석** | `data_analysis/` | 원천 CSV → 전처리 → 최종 추천용 feature 데이터셋(`cafe_area_features.csv`) 생성 (Python) |
-| **백엔드 API** | `backend/` | 최종 CSV를 메모리에 로드해 추천·검색·비교·설명 API 제공 (Node.js) |
-| **프론트엔드** | `frontend/` | 시간대 선택, 추천 카드, 상세/비교 화면 제공 (React via CDN) |
+| **데이터 전처리** | `data_analysis/` | Python(pandas/numpy)으로 원천 CSV → 행정동×업종 feature 생성 |
+| **백엔드 API** | `backend/` | Node.js + Express 5 + Prisma 6 + PostgreSQL 16, JWT 인증, AI 설명 |
+| **프론트엔드** | `frontend/` | Vite 6 + React 18 + TypeScript 5.7 + Tailwind 4 (+ 레거시 `public/`) |
+| **DB** | `docker-compose.yml` | PostgreSQL 16 (로컬 컨테이너) |
+| **배포** | `vercel.json` | Frontend → Vercel, Backend → Render ([확인 필요] 운영 상태) |
 
 ---
 
-## 2. 기술 스택
+## 2. 기술 스택 (실제 manifest 기준)
 
-코드·설정 파일에서 **실제로 확인된** 내용만 기술합니다.
+### 백엔드 (`backend/package.json`)
+- **런타임/프레임워크:** Node.js (CommonJS), **Express `^5.2.1`**
+- **DB/ORM:** **PostgreSQL 16**, **Prisma `^6.19.3`** (`@prisma/client`)
+- **인증:** `jsonwebtoken ^9.0.3`, `bcryptjs ^3.0.3` (salt rounds 12, JWT 기본 7d)
+- **데이터:** `csv-parse ^6.2.1`, `dotenv ^17.4.2`
+- **AI 설명(선택):** OpenAI Chat Completions(`OPENAI_MODEL` 기본 `gpt-5-nano`) 또는 로컬 Ollama(`llama3.1`), 실패 시 **rule-based fallback**
 
-### 백엔드 (`backend/`)
-- **런타임:** Node.js (CommonJS). `engines` 필드가 없어 최소 버전은 미지정 — **[확인 필요]**
-- **HTTP 서버:** Node 내장 `http` 모듈 사용 (`src/server.js`)
-- **외부 의존성:** `package.json`에는 `express ^5.2.1`이 선언되어 있으나, **현재 서버 코드는 Express를 import/사용하지 않고 native `http`로 직접 구현**되어 있습니다. (express는 선언만 되어 있는 미사용 의존성)
-- **CSV 파싱:** 외부 라이브러리 없이 `dataStore.js`에 자체 구현
-- **AI 설명(선택):** 로컬 LLM(Ollama HTTP API) 연동, 실패 시 규칙 기반(rule-based) 설명으로 fallback
-- **DB:** 사용하지 않음 (CSV in-memory)
-
-### 프론트엔드 (`frontend/`)
-- **정적 서버:** Node 내장 `http` 모듈로 `public/` 정적 파일 서빙 (`server.js`)
-- **UI:** **React 18** — 빌드 도구 없이 `index.html`에서 **CDN(unpkg) UMD 번들**을 로드하고, `app.js`는 JSX 없이 `React.createElement`로 작성됨
-- **npm 의존성:** 없음 (`package.json`에 `dependencies` 없음)
-- **스타일:** 순수 CSS (Grid/Flexbox 반응형, 모바일 breakpoint 920px)
+### 프론트엔드 (`frontend/package.json`)
+- **빌드:** **Vite `^6.0.7`**, **TypeScript `^5.7.3`**
+- **UI:** **React `^18.3.1`**, `react-router ^7.1.1`, **Tailwind CSS `^4.1.0`**(`@tailwindcss/vite`), `lucide-react`, `tw-animate-css`
+- 인증 토큰은 `localStorage`(`goldenCafe.authToken`)에 저장
 
 ### 데이터 분석 (`data_analysis/`)
-- **언어:** Python 3 (`__pycache__`의 `cpython-314` 캐시로 보아 개발 환경은 CPython 3.14)
-- **라이브러리:** `pandas`, `numpy` (전처리 스크립트), `matplotlib`, `scikit-learn`(MinMaxScaler) (노트북)
-- **버전 고정:** `requirements.txt` / `pyproject.toml` 등이 없어 정확한 라이브러리 버전은 **[확인 필요]**
+- **Python 3.x** (`__pycache__`상 CPython 3.14), `pandas`, `numpy`
+- 버전 고정 파일(`requirements.txt` 등) 없음 → 정확한 버전 **[확인 필요]**
 
 ---
 
@@ -59,258 +60,179 @@
 
 ```
 T_sum/
-├── CODEX_DEV_BRIEF_황금을찾아라.md   # 프로젝트 기획 브리프(스펙·요구사항)
+├── PROJECT_DEVELOPMENT_SUMMARY.md     # 상세 설계 문서(데이터·점수·DB·배포)
+├── docker-compose.yml                 # PostgreSQL 16 로컬 컨테이너
+├── vercel.json                        # 배포 설정(프론트 Vite)
 │
-├── backend/                          # Node.js 추천 API 서버
-│   ├── package.json                  # start/dev 스크립트, express(미사용) 선언
-│   ├── .env.example                  # 환경변수 템플릿
-│   ├── README.md                     # 백엔드 개별 문서
-│   └── src/
-│       ├── server.js                 # HTTP 서버 진입점(native http), 라우팅
-│       ├── dataStore.js              # CSV 로드·정규화·추천점수·검색·비교 로직
-│       └── aiReason.service.js       # 규칙 기반 설명 + 로컬 LLM(Ollama) 연동·fallback
+├── data_analysis/                     # Python 전처리 파이프라인
+│   └── data/
+│       ├── raw/   유동인구.csv, 추정매출.csv              # 원천(cp949)
+│       └── processed/
+│           ├── category_config.py     # 10개 업종 정의(DEFAULT_CATEGORIES)
+│           ├── pop.py                  # 유동인구 → pop_features.csv
+│           ├── sales.py               # 매출(업종별) → sales_features.csv
+│           ├── process.py             # 병합·전환효율 → area_features.csv (+ cafe 호환본)
+│           └── *.csv                  # 산출물(utf-8-sig)
 │
-├── frontend/                         # 정적 서버 + React(CDN) SPA
-│   ├── package.json                  # start 스크립트(node server.js)
-│   ├── .env.example                  # VITE_API_BASE_URL 템플릿(현재 미사용)
-│   ├── README.md                     # 프론트엔드 개별 문서
-│   ├── server.js                     # public/ 정적 파일 서버(native http)
-│   └── public/
-│       ├── index.html                # React 18 UMD(CDN) + app.js/styles.css 로드
-│       ├── app.js                    # React.createElement 기반 SPA, API 호출
-│       └── styles.css                # 골드/그린 팔레트, 반응형 스타일
+├── backend/                           # Express + Prisma API
+│   ├── prisma/
+│   │   ├── schema.prisma              # 10개 모델(User, District, BusinessCategory, AreaFeature 등)
+│   │   ├── seed.js                    # area_features.csv → DB upsert
+│   │   └── migrations/                # 5개 마이그레이션
+│   ├── src/
+│   │   ├── server.js                  # 진입점(dotenv 로드, PORT 4000)
+│   │   ├── app.js                     # Express 앱(cors→methodGuard→json→routes→notFound→error)
+│   │   ├── routes/                    # health/api/auth/area/recommendation/compare/comparison/savedArea/ai/meta
+│   │   ├── controllers/               # 라우트별 컨트롤러
+│   │   ├── services/                  # dataStore(점수계산)/areaFeature(Prisma)/aiReason/auth/savedArea/comparison/history/prisma
+│   │   ├── middlewares/               # cors/methodGuard/auth/asyncHandler/error/notFound
+│   │   └── schemas/                   # auth/query 입력 검증
+│   └── .env.example
 │
-├── data_analysis/                    # Python 전처리 파이프라인
-│   ├── data/
-│   │   ├── raw/
-│   │   │   ├── 유동인구.csv          # 원천: 행정동·시간대별 유동인구
-│   │   │   └── 추정매출.csv          # 원천: 업종별 추정매출
-│   │   └── processed/
-│   │       ├── pop.py                # 유동인구 → 2030 유동인구 피처
-│   │       ├── sales.py              # 카페 매출 → 시간대·2030 매출 피처
-│   │       ├── process.py            # 병합 + 추천점수 계산 → 최종 CSV (오케스트레이터)
-│   │       ├── pop_2030_features.csv     # 중간 산출물
-│   │       ├── cafe_sales_features.csv   # 중간 산출물
-│   │       └── cafe_area_features.csv    # ★ 백엔드가 사용하는 최종 데이터셋
-│   └── jupyter_practice/
-│       └── analysis.ipynb            # 탐색적 분석(EDA) 노트북
+├── frontend/                          # Vite + React + TS + Tailwind
+│   ├── index.html · vite.config.ts · tsconfig.json
+│   ├── src/
+│   │   ├── main.tsx · app/App.tsx · app/routes.tsx
+│   │   ├── app/pages/                 # Home/Recommendations/Detail/Compare/Login/Register/Saved
+│   │   ├── app/lib/                   # api.ts(백엔드 호출)·format·options·storage
+│   │   ├── app/auth/AuthContext.tsx   # JWT 인증 상태
+│   │   └── app/components/ui/         # shadcn 기반 UI 컴포넌트
+│   ├── public/                        # ⚠️ 레거시 vanilla(React CDN) — 현재는 Vite src/가 주력
+│   └── server.js                      # dist/ 정적 서빙 서버(node)
 │
-├── step.ipynb                        # (탐색용) 유동인구·추정매출 로드 → 커피-음료 매출 중심 EDA
-├── Test.ipynb                        # (탐색용) 유동인구 CSV 로드 → 유동인구 EDA(예: 역삼1동 시계열)
-├── people.py                         # (탐색용) 유동인구 처리 함수 make_pop_data()
-└── money.py                          # 빈 스텁 파일(내용 없음)
+├── analysis/validate_recommendation.js  # 추천 민감도 검증 스크립트
+├── step.ipynb · Test.ipynb               # 탐색용 노트북
+└── people.py · money.py                  # 레거시/빈 스텁
 ```
-
-> 루트의 `step.ipynb`, `Test.ipynb`, `people.py`는 탐색/연습용이며, **실제 데이터 파이프라인은
-> `data_analysis/data/processed/`의 `pop.py → sales.py → process.py`** 입니다.
-> `money.py`는 현재 내용이 없는 빈 파일입니다.
 
 ---
 
-## 4. 데이터 파이프라인 (`data_analysis/`)
+## 4. 데이터 전처리 파이프라인 (`data_analysis/data/processed/`)
 
-원천 CSV를 전처리해 백엔드가 사용하는 최종 데이터셋을 만듭니다. **최종 산출물
-`cafe_area_features.csv`는 이미 저장소에 포함되어 있어, 백엔드를 바로 실행할 수 있습니다.**
+원천 CSV를 **행정동×업종** 단위 feature로 정제합니다. 산출물은 저장소에 포함되어 있습니다.
 
-| 스크립트 | 입력 | 출력 | 주요 처리 |
-|----------|------|------|-----------|
-| `pop.py` | `../raw/유동인구.csv` | `pop_2030_features.csv` | 2025년 1~4분기 필터, 행정동별 평균 유동인구, `2030_유동인구`·`2030_유동인구비율` 계산 |
-| `sales.py` | `../raw/추정매출.csv` | `cafe_sales_features.csv` | `커피-음료` 업종·2025년 필터, 시간대별 매출비중, `2030_매출비율`, `객단가`, 피크타임 산출 |
-| `process.py` | 위 두 스크립트 결과 | `cafe_area_features.csv` | 유동인구·매출 피처 병합, `카페전환효율`·`MZ카페_추천점수` 계산 |
+| 단계 | 입력 | 출력 | 처리 |
+|------|------|------|------|
+| `pop.py` | `유동인구.csv` (11,900행×25열) | `pop_features.csv` (425행×23열) | 2025년 4개 분기 필터 → 행정동 평균 집계 → 2030·시간대 비중 파생 |
+| `sales.py` | `추정매출.csv` (67,113행×53열) | `sales_features.csv` (3,720행×39열) | 10개 업종 필터 → 행정동×분기 합산 후 `집계_기간수`로 기간 평균화 |
+| `process.py` | 위 둘 | `area_features.csv` (3,720행×65열) | 행정동 공통키 left join + `월_유동인구추정`·`업종전환효율` 파생 |
 
-`process.py`는 내부에서 `pop.build_pop_features()`와 `sales.build_cafe_sales_features()`를
-호출하므로, **`process.py` 하나만 실행해도 전체 파이프라인이 재생성**됩니다.
-
-재생성이 필요할 때만 실행하면 됩니다.
+- 호환용 `cafe_area_features.csv`(커피·음료 단일, 421행)도 함께 생성
+- 인코딩: 입력 `cp949` → 출력 `utf-8-sig`
+- 핵심 보정: `월_유동인구추정 = 총_유동인구_수 × (365.25/12/7)` (단순 ×30 아님), `safe_divide`로 0분모 보호, `분기별_매출안정성 = 1/(1+CV)`
 
 ```bash
-# pandas, numpy 설치 필요 (버전 미지정)
 pip install pandas numpy
-
 cd data_analysis/data/processed
-python process.py        # pop/sales를 내부 호출 → cafe_area_features.csv 생성
+python process.py        # pop.py·sales.py 내부 호출 → area_features.csv 재생성
 ```
-
-> 원천 CSV는 `cp949` 인코딩으로 읽고, 산출 CSV는 `utf-8-sig`로 저장됩니다(스크립트 내 하드코딩).
-> 데이터 기간·업종 등 설정값은 각 스크립트 상단 상수(`TARGET_QUARTERS`, `CAFE_SERVICE_NAME` 등)에
-> 하드코딩되어 있으며, CLI 인자나 환경변수는 사용하지 않습니다.
 
 ---
 
-## 5. 설치 및 실행 방법
+## 5. 설치 및 실행
 
-백엔드(포트 4000)와 프론트엔드(포트 3000)를 각각 실행합니다. 프론트엔드 `app.js`는 API 주소를
-`http://localhost:4000/api`로 **하드코딩**하고 있으므로, 백엔드를 4000 포트로 띄워야 정상 동작합니다.
+### 5.1 데이터베이스 (PostgreSQL)
+```bash
+docker compose up -d     # postgres:16, db=t_sum, user/pass=t_sum_user/t_sum_password, :5432
+```
 
-### 5.1 백엔드 실행
-
+### 5.2 백엔드 (port 4000)
 ```bash
 cd backend
-npm install              # express가 설치되지만 현재 코드에서는 사용되지 않음
-npm start                # node src/server.js → http://localhost:4000
-# 개발 모드(파일 변경 감지):
-npm run dev              # node --watch src/server.js
+cp .env.example .env          # 값 채우기(아래 6장)
+npm install
+npm run prisma:generate       # Prisma Client 생성
+npm run prisma:migrate        # 마이그레이션 적용(개발: prisma migrate dev)
+npm run db:seed               # area_features.csv → DB 적재
+npm start                     # node src/server.js  (개발: npm run dev = --watch)
 ```
 
-- 서버는 시작 시 `cafe_area_features.csv`를 메모리에 로드합니다. **파일이 없으면 시작 시 에러를 던집니다.**
-- 데이터 경로 기본값은 `backend/src/` 기준 `../../data_analysis/data/processed/cafe_area_features.csv`
-  이므로, **`backend/` 디렉토리에서 실행**하면 저장소에 포함된 CSV를 그대로 사용합니다.
-
-동작 확인:
-
-```bash
-curl http://localhost:4000/api/health
-curl "http://localhost:4000/api/recommendations?time=저녁&limit=10"
-```
-
-### 5.2 프론트엔드 실행
-
+### 5.3 프론트엔드 (Vite dev: port 5173)
 ```bash
 cd frontend
-npm start                # node server.js → http://localhost:3000
+npm install
+npm run dev                   # vite --host 0.0.0.0
+# 프로덕션: npm run build → dist/ , npm start(node server.js, dist 정적 서빙)
 ```
 
-- `npm install`이 필요 없습니다(의존성 없음, React는 CDN 로드).
-- 브라우저에서 `http://localhost:3000` 접속.
-- React UMD 번들을 **외부 CDN(unpkg)** 에서 받으므로, **인터넷 연결이 필요**합니다.
-
-### 5.3 (선택) 로컬 LLM AI 설명 사용
-
-AI 자연어 설명은 선택 기능입니다. 사용하지 않으면 규칙 기반 설명이 반환됩니다.
-
-```bash
-# 1) Ollama 등 로컬 LLM 서버 실행 후 모델 준비 (기본값: llama3.1)
-# 2) 백엔드 실행 시 환경변수 설정
-EXPLANATION_MODE=local-llm LOCAL_LLM_MODEL=llama3.1 npm start   # backend/
-
-# 3) 요청 시 ai=true 파라미터로 호출
-curl "http://localhost:4000/api/recommendations?time=저녁&ai=true"
-```
-
-> LLM 호출이 실패하면 자동으로 규칙 기반 설명으로 fallback합니다. LLM은 **설명만** 담당하며
-> 추천 순위·점수를 직접 만들지 않습니다(점수는 항상 알고리즘이 계산).
+> 프론트엔드는 로컬 접속 시 API를 `http://<host>:4000/api`로 자동 지정합니다.
+> 그 외에는 `VITE_API_BASE_URL` 또는 기본 프로덕션 URL을 사용합니다(`src/app/lib/api.ts`).
 
 ---
 
-## 6. 환경 변수 / 설정
+## 6. 환경 변수 (`backend/.env.example`)
 
-> ⚠️ 백엔드·프론트엔드 코드에는 `dotenv` 로딩이 없습니다. 따라서 `.env.example`의 값은
-> **셸 환경변수로 직접 지정**하거나 Node의 `--env-file` 옵션으로 로드해야 적용되며,
-> 지정하지 않으면 코드의 기본값이 사용됩니다.
+| 변수 | 예시값 | 설명 |
+|------|--------|------|
+| `PORT` | `4000` | API 서버 포트 |
+| `DATABASE_URL` | `postgresql://t_sum_user:t_sum_password@localhost:5432/t_sum?schema=public` | Prisma 연결 |
+| `DATA_PATH` | `../data_analysis/data/processed/area_features.csv` | seed/CSV 소스 경로 |
+| `FRONTEND_ORIGIN` | `http://localhost:3000` | CORS 용도 ([확인 필요] 코드 CORS 기본 `*`) |
+| `JWT_SECRET` / `JWT_EXPIRES_IN` | `...` / `7d` | JWT 서명 키 / 만료 |
+| `EXPLANATION_MODE` / `EXPLANATION_PROVIDER` | `rule` / `openai` | 설명 모드/제공자 |
+| `OPENAI_API_KEY` / `OPENAI_MODEL` | `` / `gpt-5-nano` | OpenAI 설명(선택) |
+| `LOCAL_LLM_PROVIDER` / `LOCAL_LLM_URL` / `LOCAL_LLM_MODEL` | `ollama` / `http://localhost:11434/api/generate` / `llama3.1` | 로컬 LLM(선택) |
 
-### 백엔드 `backend/.env.example`
-
-| 변수 | 기본값(.env.example) | 코드 기본값 | 설명 |
-|------|----------------------|-------------|------|
-| `PORT` | `4000` | `4000` | API 서버 포트 |
-| `DATA_PATH` | `../data_analysis/data/processed/cafe_area_features.csv` | `../../data_analysis/data/processed/cafe_area_features.csv` (`src/` 기준) | 추천용 CSV 경로 |
-| `FRONTEND_ORIGIN` | `http://localhost:3000` | — | **현재 미사용.** CORS는 코드에서 `*`로 하드코딩됨 |
-| `EXPLANATION_MODE` | `rule` | `rule` | 설명 모드(`rule` / `local-llm`) |
-| `LOCAL_LLM_PROVIDER` | `ollama` | `ollama` | 로컬 LLM 제공자 |
-| `LOCAL_LLM_URL` | `http://localhost:11434/api/generate` | — | 로컬 LLM 엔드포인트 |
-| `LOCAL_LLM_MODEL` | `llama3.1` | — | 로컬 LLM 모델명 |
-
-### 프론트엔드 `frontend/.env.example`
-
-| 변수 | 값 | 설명 |
-|------|----|------|
-| `VITE_API_BASE_URL` | `http://localhost:4000/api` | **현재 미사용.** 정적 서버는 이 값을 주입하지 않으며, `public/app.js`가 동일 URL을 **하드코딩**하고 있음 (Vite 도입을 가정했던 잔재로 추정 — **[확인 필요]**) |
-
-> 참고: `frontend/.env.example`에는 `VITE_API_BASE_URL`만 들어 있습니다. `PORT`는 이 파일에 없지만
-> `frontend/server.js`가 `process.env.PORT`(기본 3000)를 읽으므로, 셸에서 `PORT`를 지정하면 적용됩니다.
+프론트엔드(`frontend/.env.example`): `VITE_API_BASE_URL` (API base, `/api` 포함).
 
 ---
 
-## 7. 백엔드 API 명세
+## 7. 백엔드 API (주요 경로)
 
-모든 응답은 `application/json; charset=utf-8`이며, CORS 헤더(`Access-Control-Allow-Origin: *`)가
-포함됩니다. `GET` 외 메서드는 405를 반환합니다.
+Base: `/api`. 인증이 필요한 경로는 `Authorization: Bearer <JWT>` 헤더 필요.
 
-시간대 파라미터(`time`)는 **영문 value / 한글 label / 시간 range** 중 어느 것으로도 지정할 수 있습니다.
+| 메서드·경로 | 인증 | 설명 |
+|-------------|------|------|
+| `GET /api/health` | — | 헬스 체크 |
+| `GET /api/meta` | — | 시간대·연령대·업종·가중치 등 메타 |
+| `GET /api/recommendations` (alias `/recommend`) | optional | 추천 목록. query: `category`,`time`,`targetAges`,`limit`,`useAdjustedScore`,`minQualityScore`,`ai` |
+| `GET /api/areas` · `GET /api/areas/:areaCode` | — | 행정동 검색 / 상세 |
+| `GET /api/compare` | — | 두 행정동 비교 (`areaA`,`areaB`,`time`,`category`) |
+| `POST /api/auth/register` · `/login` · `GET /api/auth/me` | 일부 | 회원가입/로그인/내 정보 |
+| `GET/POST/DELETE /api/saved-areas` | 필요 | 저장 상권 CRUD |
+| `GET/POST /api/comparisons`, `/:id/items` | 필요 | 비교함 CRUD |
+| `POST /api/ai/area-report` · `compare-summary` · `reliability-explanation` | — | AI 설명 생성 |
 
-| value | label | range |
-|-------|-------|-------|
-| `dawn` | 새벽 | `00~06` |
-| `morning` | 오전 | `06~11` |
-| `lunch` | 점심 | `11~14` |
-| `afternoon` | 오후 | `14~17` |
-| `evening` | 저녁 | `17~21` |
-| `night` | 심야 | `21~24` |
-
-| 메서드 · 경로 | 설명 | 주요 쿼리 |
-|---------------|------|-----------|
-| `GET /api/health` (또는 `/`, `/health`) | 헬스 체크 → `{ "status": "ok" }` | — |
-| `GET /api/meta` | 서비스 메타(업종·타겟·시간대·점수 가중치·LLM 설정·데이터 건수) | — |
-| `GET /api/recommendations` | 추천 행정동 목록 | `time`(기본 evening), `limit`(기본 10, 1~50), `ai`(true 시 LLM 설명) |
-| `GET /api/areas` | 행정동 검색(코드/이름) | `query`(또는 `keyword`), `limit`(기본 20, 1~100) |
-| `GET /api/areas/:areaCode` | 행정동 상세(지표·시간대별 매출비중·사유·전략) | `time`, `ai` |
-| `GET /api/compare` | 두 행정동 비교 | `areaA`, `areaB`(필수), `time` |
-
-오류 처리:
-- 추천(`/api/recommendations`)에서 **잘못된 시간대 → `400`**
-- 상세(`/api/areas/:areaCode`)·비교(`/api/compare`)에서는 잘못된 시간대 또는 대상 미존재 시 **`404`** (해당 라우트는 시간대를 별도 400으로 구분하지 않음)
-- 비교에서 `areaA`/`areaB` 누락 → `400`
-- `GET` 외 메서드 → `405`, 알 수 없는 경로 → `404`, 서버 처리 실패 → `500`
-
-응답 값에 `NaN`/`Infinity`는 포함하지 않고 `null` 또는 `0`으로 처리합니다.
-
-예시:
-
-```bash
-curl http://localhost:4000/api/meta
-curl "http://localhost:4000/api/recommendations?time=오전&limit=10"
-curl "http://localhost:4000/api/areas?query=성수"
-curl "http://localhost:4000/api/areas/11200114?time=저녁"
-curl "http://localhost:4000/api/compare?areaA=11200114&areaB=11440124&time=저녁"
-```
+허용되지 않은 변경 메서드 → `405`, 미존재 경로 → `404`.
 
 ---
 
-## 8. 추천 점수 로직
+## 8. 추천 점수·신뢰도 모델
 
-추천점수는 **CSV 데이터 기반으로 API 호출 시 동적으로 계산**됩니다(하드코딩된 가짜 결과 없음).
-각 지표를 전체 행정동 대상 **Min-Max 정규화(0~1)** 한 뒤 가중합하고, `×100`(소수 1자리)으로 표시합니다.
+추천 점수는 **API 호출 시 조건(업종·시간대·연령)에 따라 동적 계산**됩니다(`backend/src/services/dataStore.service.js`).
 
 ```
-추천점수 =  카페전환효율(cafeConversionRate)      × 0.35
-          + 2030 매출비율(mzSalesRatio)           × 0.30
-          + 선택시간대 매출비중(selectedTime…)    × 0.25
-          + 객단가(averageOrderValue)             × 0.10
+baseScore = Σ( norm(featureᵢ) × weightᵢ ) × 100
+  weights = 업종전환효율 0.30 · 타깃 매출비율 0.25 · 타깃 유동인구 0.20
+            · 선택시간대 매출비중 0.15 · 객단가 0.10
+norm(x)  = clamp((x - min) / (max - min), 0, 1)   # useAdjustedScore=true면 min=P1,max=P99
 ```
 
-(가중치 출처: `backend/src/dataStore.js`의 `SCORE_WEIGHTS`)
-
-**추천 사유**는 `aiReason.service.js`의 규칙 기반 함수가 생성합니다(예: 카페전환효율이 상위
-25%이면 "구매 전환효율이 높다", 2030 매출비율이 평균 이상이면 "MZ 타겟에 적합" 등). 최소 2개,
-선택 시 로컬 LLM이 자연어 설명을 추가로 생성할 수 있습니다.
-
----
-
-## 9. 주요 기능
-
-- **시간대별 추천:** 6개 운영 시간대 선택에 따라 추천점수·순위가 동적으로 바뀜
-- **Top N 추천 목록:** 추천점수, 핵심 지표(2030 매출비율·카페전환효율·선택시간대 매출비중·객단가), 추천 사유 카드 제공
-- **행정동 상세:** 총 매출·유동인구, 시간대별 매출비중, 점수 분해(scoreBreakdown), 운영 전략 가이드
-- **행정동 비교:** 두 행정동의 핵심 지표·추천점수 비교 및 요약 문장
-- **데이터 기반 설명:** 규칙 기반 설명 + (선택) 로컬 LLM 자연어 설명
-- **반응형 UI:** 골드/그린 톤, 모바일에서 카드 단일 열 정렬
+데이터 신뢰도 보정:
+```
+dataQuality        = (매출건수0.3 + 유동인구0.2 + 타깃유동0.2 + 분기안정성0.2 + 이상치0.1) × 100
+reliabilityFactor  = 0.55 + (dataQuality/100) × 0.45     # 0.55 ~ 1.0
+finalScore         = baseScore × reliabilityFactor
+```
+품질 등급: 80+ 높음 / 60+ 보통 / 40+ 주의 / 그 미만 낮음. 기준 미만은 “검토 후보”로 분리.
 
 ---
 
-## 10. 프론트엔드 ↔ 백엔드 연동
+## 9. 데이터베이스 (Prisma + PostgreSQL)
 
-- 프론트엔드(`public/app.js`)는 `API_BASE_URL = "http://localhost:4000/api"`로 백엔드를 호출합니다.
-- 사용 엔드포인트: `/recommendations`, `/areas/:areaCode`, `/compare` (`fetch` 사용).
-- 따라서 **백엔드(4000)를 먼저 실행**한 뒤 프론트엔드(3000)에 접속해야 추천 결과가 표시됩니다.
+`schema.prisma`의 주요 모델: `User`, `District`(행정동), `BusinessCategory`(업종), `Dataset`,
+`AreaFeature`(행정동×업종×데이터셋, 수치 feature + `rawFeatures` JSON 보존), `RecommendationRun`/
+`RecommendationResult`(추천 이력), `SavedArea`(저장), `Comparison`/`ComparisonItem`(비교함).
+
+`seed.js`가 `area_features.csv`(없으면 `cafe_area_features.csv`)를 읽어
+`District`/`BusinessCategory`/`Dataset`/`AreaFeature`를 upsert합니다.
 
 ---
 
-## 11. 참고 / 확인 필요 항목
+## 10. 참고 / 확인 필요
 
-코드에서 단정하기 어려운 부분은 아래에 정리했습니다.
-
-- **[확인 필요]** Node.js·Python·각 라이브러리의 정확한 버전(`engines`/`requirements.txt` 부재)
-- **[확인 필요]** `express`(backend)·`VITE_API_BASE_URL`(frontend)는 선언/정의만 있고 현재 코드에서 미사용 — 향후 도입 예정인지 잔재인지 불명확
-- **[확인 필요]** 원천 데이터(`유동인구.csv`, `추정매출.csv`)의 정확한 출처·라이선스(컬럼명상 서울시 공공/상권 통계로 추정)
-- **[확인 필요]** 노트북(`analysis.ipynb`)은 `MinMaxScaler`를, 스크립트(`process.py`)는 자체 `minmax_score()`를 사용 — 정규화 방식의 일관성
-- 본 README는 현재 branch(`taehyeong`)의 코드 기준입니다. 다른 branch에는 차이가 있을 수 있습니다.
+- **[확인 필요]** 추천 점수 계산의 데이터 소스 — 인메모리 CSV(`dataStore.service.js`)와 Prisma DB(`areaFeature.service.js`) 경로가 공존하며, 둘의 우선순위/동기화 방식이 코드만으로는 명확치 않음
+- **[확인 필요]** 라이브러리(Node/Python/패키지)의 정확한 버전(`engines`·`requirements.txt` 부재)
+- **[확인 필요]** 운영 배포 상태(Vercel/Render URL·가동 여부) 및 OpenAI 활성화 여부
+- `frontend/public/`(React CDN vanilla)은 **레거시**이며 현재 주력은 `frontend/src/`(Vite). 루트 `step.ipynb`/`Test.ipynb`/`people.py`/`money.py`는 탐색·레거시 파일
+- 본 README는 `taehyeong` branch(현재 `main` 머지 반영) 기준입니다.
