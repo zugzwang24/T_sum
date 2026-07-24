@@ -1,4 +1,5 @@
 const express = require("express");
+const tourismRoutes = require("./tourism.routes");
 const { getApiInfo } = require("../controllers/apiInfo.controller");
 const aiRoutes = require("./ai.routes");
 const authRoutes = require("./auth.routes");
@@ -20,5 +21,6 @@ router.use(savedAreaRoutes);
 router.use(comparisonRoutes);
 router.use(areaRoutes);
 router.use(compareRoutes);
+router.use(tourismRoutes);
 
 module.exports = router;
